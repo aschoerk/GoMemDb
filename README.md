@@ -1,11 +1,24 @@
 # README #
 
-This README would normally document whatever steps are necessary to get your application up and running.
+### Next issues
+
+* -- fix and extend driver_test -- done
+* order by -- done
+* case insensitive keywords (golex does not support -i) -- done now using goflex
+* UPDATE -- done
+* DELETE -- done
+* multi user, transaction, remote interface -- doing
+* AGGREGATE FUNCTIONS
+* GROUP BY
+* HAVING
+* NULL handling
+* JOINS
+
 
 ### What is this repository for? ###
 
-* Quick summary
-* Version
+* Lightweight Go-InMemory-DBMS supporting "database/sql/driver"  
+* 0.1
 * [Learn Markdown](https://bitbucket.org/tutorials/markdowndemo)
 
 ### How do I get set up? ###
