@@ -52,3 +52,5 @@ Thumbs.db
 parser/sql.go
 parser/tokenizer.go
 parser/sql.y.output
+gosqlengine.iml
+example
