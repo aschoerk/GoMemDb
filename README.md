@@ -1,42 +1,37 @@
 # README #
-
-### Next issues
-
-* -- fix and extend driver_test -- done
-* order by -- done
-* case insensitive keywords (golex does not support -i) -- done now using goflex
-* UPDATE -- done
-* DELETE -- done
-* multi user, transaction, remote interface -- doing
+A project allowing me to use go in a not so simple environment. The idea is to implement a simple inmemory database in multiple stages
+* INSERT/SELECT (only WHERE) on single tables existing of [][]interface{}
+* creation of tempor
+* UPDATE/DELETE
+* Remote Access via Rest, plus database/sql/driver **** currently working on that 
+* Transactions plus MVCC plus Multiuser-Capability
+* Backing of Memory-Changes via persistent storage
 * AGGREGATE FUNCTIONS
 * GROUP BY
 * HAVING
 * NULL handling
 * JOINS
 
+### Next issues
+
 
 ### What is this repository for? ###
 
 * Lightweight Go-InMemory-DBMS supporting "database/sql/driver"  
 * 0.1
-* [Learn Markdown](https://bitbucket.org/tutorials/markdowndemo)
 
 ### How do I get set up? ###
 
-* Summary of set up
-* Configuration
+* Start Server using driver.StartServer()
 * Dependencies
 * Database configuration
-* How to run tests
-* Deployment instructions
+* tests are located in the tests-package
+* no deployment in productive environments recommended yet
 
 ### Contribution guidelines ###
 
-* Writing tests
-* Code review
-* Other guidelines
+* contact me
 
 ### Who do I talk to? ###
 
-* Repo owner or admin
-* Other community or team contact
+* aschoerk@gmx.net
