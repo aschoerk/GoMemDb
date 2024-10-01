@@ -9,7 +9,7 @@ import (
     "bufio"
     "strings"
     "time"
-    . "github.com/aschoerk/gosqlengine/data"
+    . "github.com/aschoerk/go-sql-mem/data"
     "database/sql/driver"
 )
 

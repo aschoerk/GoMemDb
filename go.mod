@@ -1,4 +1,4 @@
-module github.com/aschoerk/gosqlengine
+module github.com/aschoerk/go-sql-mem
 
 go 1.22.5
 

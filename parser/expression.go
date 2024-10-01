@@ -8,8 +8,8 @@ import (
 	"reflect"
 	"time"
 
-	. "github.com/aschoerk/gosqlengine/data"
-	. "github.com/aschoerk/gosqlengine/machine"
+	. "github.com/aschoerk/go-sql-mem/data"
+	. "github.com/aschoerk/go-sql-mem/machine"
 )
 
 type EvaluationContext struct {

@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"time"
 
-	. "github.com/aschoerk/gosqlengine/data"
+	. "github.com/aschoerk/go-sql-mem/data"
 )
 
 func NewColumn(name string, coltype int, length int, spec2 int) GoSqlColumn {

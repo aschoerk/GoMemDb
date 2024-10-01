@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/aschoerk/gosqlengine/driver"
-	_ "github.com/aschoerk/gosqlengine/driver"
+	"github.com/aschoerk/go-sql-mem/driver"
+	_ "github.com/aschoerk/go-sql-mem/driver"
 )
 
 func main() {

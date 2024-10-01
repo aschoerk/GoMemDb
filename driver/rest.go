@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/aschoerk/gosqlengine/parser"
+	"github.com/aschoerk/go-sql-mem/parser"
 	"github.com/gorilla/mux"
 )
 
@@ -109,9 +109,7 @@ func (s *Server) prepareStatement(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Connection not found", http.StatusNotFound)
 		return
 	}
-	var query struct {
-		SQL string `json:"sql"`
-	}
+	var query queryType
 	if err := json.NewDecoder(r.Body).Decode(&query); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -122,11 +120,14 @@ func (s *Server) prepareStatement(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	numInput := stmt.NumInput()
 
 	stmtID := fmt.Sprintf("stmt_%d", len(s.statements))
 	s.statements[connID+"|"+stmtID] = stmt
 
-	json.NewEncoder(w).Encode(map[string]string{"connectionID": connID, "statementID": stmtID})
+	result := statmentInfo{connID, stmtID, numInput}
+
+	json.NewEncoder(w).Encode(&result)
 }
 
 func (s *Server) evaluateRequest(w http.ResponseWriter, r *http.Request) (driver.Stmt, []driver.Value, bool) {
@@ -178,12 +179,6 @@ func (s *Server) closeStatement(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-}
-
-type RowsResult struct {
-	name   []string
-	types  []int
-	values [][]driver.Value
 }
 
 func (s *Server) queryStatement(w http.ResponseWriter, r *http.Request) {

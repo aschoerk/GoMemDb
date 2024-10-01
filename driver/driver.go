@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"reflect"
 
-	"github.com/aschoerk/gosqlengine/parser"
+	"github.com/aschoerk/go-sql-mem/parser"
 )
 
 // Implements the necessary Driver Interfaces

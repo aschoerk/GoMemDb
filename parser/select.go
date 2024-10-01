@@ -8,7 +8,7 @@ import (
 	"slices"
 	"strconv"
 
-	"github.com/aschoerk/gosqlengine/data"
+	"github.com/aschoerk/go-sql-mem/data"
 	"github.com/google/uuid"
 )
 

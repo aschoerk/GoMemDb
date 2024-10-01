@@ -5,11 +5,11 @@ import (
 	"testing"
 	"time"
 
-	_ "github.com/aschoerk/gosqlengine/driver"
+	_ "github.com/aschoerk/go-sql-mem/driver"
 )
 
 func TestSQLDriver(t *testing.T) {
-	db, err := sql.Open("GoSql", "memory")
+	db, err := sql.Open("GoSqlRest", "http://localhost:8080")
 	if err != nil {
 		t.Fatalf("Failed to open database: %v", err)
 	}

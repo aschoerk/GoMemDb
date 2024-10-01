@@ -4,8 +4,8 @@ import (
 	. "database/sql/driver"
 	"fmt"
 
-	"github.com/aschoerk/gosqlengine/data"
-	. "github.com/aschoerk/gosqlengine/data"
+	"github.com/aschoerk/go-sql-mem/data"
+	. "github.com/aschoerk/go-sql-mem/data"
 )
 
 type GoSqlCreateTableRequest struct {

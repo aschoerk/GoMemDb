@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"slices"
 
-	. "github.com/aschoerk/gosqlengine/data"
+	. "github.com/aschoerk/go-sql-mem/data"
 )
 
 type GoSqlInsertRequest struct {
