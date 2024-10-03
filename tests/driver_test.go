@@ -42,7 +42,7 @@ func TestSQLDriver(t *testing.T) {
 		{
 			name:        "Insert and select integer and string",
 			insertQuery: "INSERT INTO test_table (int_col, string_col) VALUES (?,?)",
-			insertArgs:  []interface{}{43, "test string 43"},
+			insertArgs:  []interface{}{43.0, "test string 43"},
 			selectQuery: "SELECT string_col FROM test_table WHERE (int_col = ? - 2) AND string_col = ?",
 			selectArgs:  []interface{}{45, "test string 43"},
 			expected:    "test string 43",
@@ -52,7 +52,7 @@ func TestSQLDriver(t *testing.T) {
 			insertArgs:  []interface{}{42},
 			selectQuery: "SELECT int_col FROM test_table WHERE int_col = ?",
 			selectArgs:  []interface{}{42},
-			expected:    42,
+			expected:    42.0,
 		}, {
 			name:        "Insert and select boolean true",
 			insertQuery: "INSERT INTO test_table (bool_col) VALUES (?)",
@@ -80,7 +80,7 @@ func TestSQLDriver(t *testing.T) {
 		}, {
 			name:        "Insert and concat string",
 			insertQuery: "INSERT INTO test_table (int_col, string_col) VALUES (?,?)",
-			insertArgs:  []interface{}{42, "test string"},
+			insertArgs:  []interface{}{42.0, "test string"},
 			selectQuery: "SELECT string_col + ' concat' FROM test_table WHERE int_col = 42 AND string_col LIKE ?",
 			selectArgs:  []interface{}{"%test%"},
 			expected:    "test string concat",

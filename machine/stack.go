@@ -1,5 +1,10 @@
 package machine
 
+import (
+	"fmt"
+	"reflect"
+)
+
 // Stack is an interface that defines the standard operations of a stack data structure.
 type Stack interface {
 	// Push adds an element to the top of the stack.
@@ -32,6 +37,7 @@ func NewStack() Stack {
 }
 
 func (s *sliceStack) Push(x interface{}) {
+	fmt.Printf("Pushing %v type: %s\n", x, reflect.TypeOf(x))
 	s.items = append(s.items, x)
 }
 
@@ -42,6 +48,7 @@ func (s *sliceStack) Pop() (interface{}, bool) {
 	index := len(s.items) - 1
 	item := s.items[index]
 	s.items = s.items[:index]
+	fmt.Printf("Popped %v type %s\n", item, reflect.TypeOf(item))
 	return item, true
 }
 

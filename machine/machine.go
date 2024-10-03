@@ -120,11 +120,16 @@ func ReturnInverseIfNotEqualZero(m *Machine) error {
 }
 
 func (m *Machine) Execute(placeHolders *[]Value, record *[]Value, record2 *[]Value) (Value, error) {
+	defer func() {
+		fmt.Println("\n**********************************************\n")
+	}()
 	m.s.Clear()
 	m.p = placeHolders
 	m.r = record
 	m.r2 = record2
 	m.ix = 0
+	fmt.Println("\n**********************************************\n")
+	fmt.Printf("Starting %d commands \n", len(m.commands))
 	for {
 		if m.ix >= len(m.commands) {
 			break

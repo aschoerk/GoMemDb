@@ -6,15 +6,23 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"reflect"
 	"strings"
 
 	"github.com/aschoerk/go-sql-mem/parser"
 	"github.com/gorilla/mux"
 )
 
+type ServerStmt struct {
+	stmt   driver.Stmt
+	ConnID string
+	StmtId string
+	Sql    string
+}
+
 type Server struct {
 	connections map[string]driver.Conn
-	statements  map[string]driver.Stmt
+	statements  map[string]*ServerStmt
 	router      *mux.Router
 	driver      GoSqlDriver
 }
@@ -22,7 +30,7 @@ type Server struct {
 func NewServer() *Server {
 	return &Server{
 		connections: make(map[string]driver.Conn),
-		statements:  make(map[string]driver.Stmt),
+		statements:  make(map[string]*ServerStmt),
 		router:      mux.NewRouter(),
 	}
 }
@@ -114,7 +122,8 @@ func (s *Server) prepareStatement(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-
+	stmtID := fmt.Sprintf("stmt_%d", len(s.statements))
+	fmt.Printf("Preparing Connection: %s Stmt: %s Sql: %s\n", connID, stmtID, query.SQL)
 	stmt, err := conn.Prepare(query.SQL)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -122,15 +131,14 @@ func (s *Server) prepareStatement(w http.ResponseWriter, r *http.Request) {
 	}
 	numInput := stmt.NumInput()
 
-	stmtID := fmt.Sprintf("stmt_%d", len(s.statements))
-	s.statements[connID+"|"+stmtID] = stmt
+	s.statements[connID+"|"+stmtID] = &ServerStmt{stmt, connID, stmtID, query.SQL}
 
 	result := statmentInfo{connID, stmtID, numInput}
 
 	json.NewEncoder(w).Encode(&result)
 }
 
-func (s *Server) evaluateRequest(w http.ResponseWriter, r *http.Request) (driver.Stmt, []driver.Value, bool) {
+func (s *Server) evaluateRequest(w http.ResponseWriter, r *http.Request) (*ServerStmt, []driver.Value, bool) {
 	connID, ok := extractConnectionID(w, r)
 	if !ok {
 		http.Error(w, "Invalid path, connectionID not found", http.StatusBadRequest)
@@ -161,12 +169,23 @@ func (s *Server) executeStatement(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	result, err := stmt.Exec(args)
+	fmt.Printf("Executing Connection: %s Stmt: %s Sql: %s\n", stmt.ConnID, stmt.StmtId, stmt.Sql)
+	fmt.Printf("Args:")
+	for ix, arg := range args {
+		fmt.Printf("%d: %v Type: %t/ ", ix, arg, reflect.TypeOf(arg))
+	}
+	fmt.Println("")
+
+	result, err := stmt.stmt.Exec(args)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	json.NewEncoder(w).Encode(result)
+	id, errId := result.LastInsertId()
+	rowsAffected, errRowsAffected := result.RowsAffected()
+
+	execResult := ExecResult{id, errId, rowsAffected, errRowsAffected}
+	json.NewEncoder(w).Encode(&execResult)
 }
 
 func (s *Server) closeStatement(w http.ResponseWriter, r *http.Request) {
@@ -174,7 +193,7 @@ func (s *Server) closeStatement(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	err := stmt.Close()
+	err := stmt.stmt.Close()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -187,7 +206,8 @@ func (s *Server) queryStatement(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rows, queryError := stmt.(*parser.GoSqlSelectRequest).Query(args)
+	fmt.Printf("Querying Connection: %s Stmt: %s Sql: %s\n", stmt.ConnID, stmt.StmtId, stmt.Sql)
+	rows, queryError := stmt.stmt.(*parser.GoSqlSelectRequest).Query(args)
 	if queryError != nil {
 		http.Error(w, queryError.Error(), http.StatusInternalServerError)
 		return

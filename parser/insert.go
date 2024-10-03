@@ -63,6 +63,14 @@ func (r *GoSqlInsertRequest) Exec(args []Value) (Result, error) {
 						return elem == col.Name
 					})
 					if ix >= 0 { // column handled by insertlist
+						e := evaluationResults[ix]
+						if e.resultType != col.ParserType {
+							conversionCommand, err := calcConversion(col.ColType, e.resultType)
+							if err != nil {
+								return nil, err
+							}
+							e.m.AddCommand(conversionCommand)
+						}
 						evaluationContexts[colix] = evaluationResults[ix]
 					}
 				}

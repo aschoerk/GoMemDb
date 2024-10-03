@@ -92,7 +92,7 @@ func (c *GoSqlRestStmt) Close() error {
 }
 
 func (c *GoSqlRestStmt) NumInput() int {
-	return c.parseResult.numInput
+	return c.parseResult.NumInput
 }
 
 func (c *GoSqlRestStmt) preparePostRequest(args []driver.Value, path string) (*http.Request, error) {
@@ -104,7 +104,7 @@ func (c *GoSqlRestStmt) preparePostRequest(args []driver.Value, path string) (*h
 	if err := encoder.Encode(&args); err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequest("POST", c.connection.connectString+"/connections/"+c.connection.connectionId+"/statements"+c.parseResult.statementId+"/execute", &buf)
+	req, err := http.NewRequest("POST", c.connection.connectString+"/connections/"+c.connection.connectionId+"/statements/"+c.parseResult.StatementId+"/"+path, &buf)
 	if err != nil {
 		return nil, err
 	}
@@ -124,7 +124,7 @@ func (c *GoSqlRestStmt) Exec(args []driver.Value) (driver.Result, error) {
 		log.Fatal(err)
 	}
 	defer resp.Body.Close()
-	var result driver.Result
+	var result ExecResult
 	json.NewDecoder(resp.Body).Decode(&result)
 	return result, nil
 }
@@ -139,13 +139,13 @@ func (r *GoSqlRestRows) Close() error {
 }
 
 func (r *GoSqlRestRows) Columns() []string {
-	return r.rowsResult.names
+	return r.rowsResult.Names
 }
 
 func (r *GoSqlRestRows) Next(data []driver.Value) error {
-	if r.currentRow < len(r.rowsResult.values)-1 {
+	if r.currentRow < len(r.rowsResult.Values)-1 {
 		r.currentRow++
-		row := r.rowsResult.values[r.currentRow]
+		row := r.rowsResult.Values[r.currentRow]
 		for ix, _ := range data {
 			data[ix] = row[ix]
 		}
@@ -155,7 +155,7 @@ func (r *GoSqlRestRows) Next(data []driver.Value) error {
 }
 
 func (c *GoSqlRestStmt) Query(args []driver.Value) (driver.Rows, error) {
-	req, err := c.preparePostRequest(args, "execute")
+	req, err := c.preparePostRequest(args, "rows")
 	if err != nil {
 		return nil, err
 	}

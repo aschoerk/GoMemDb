@@ -113,13 +113,13 @@ func ConvertInt64ToTime(m *Machine) error {
 	}
 
 	// Assert that the first element is a pointer to int64
-	int64Ptr, ok := firstElement.(*int64)
+	int64Value, ok := firstElement.(int64)
 	if !ok {
 		return errors.New("first element is not a pointer to int64")
 	}
 
 	// Convert int64 to time.Time (assuming it's a Unix timestamp in seconds)
-	t := time.Unix(*int64Ptr, 0)
+	t := time.Unix(int64Value, 0)
 
 	// Push the new time.Time pointer back onto the stack
 	m.s.Push(&t)
@@ -140,14 +140,14 @@ func ConvertFloat64ToTime(m *Machine) error {
 	}
 
 	// Assert that the first element is a pointer to float64
-	float64Ptr, ok := firstElement.(*float64)
+	float64Value, ok := firstElement.(float64)
 	if !ok {
 		return errors.New("first element is not a pointer to float64")
 	}
 
 	// Convert float64 to time.Time (assuming it's a Unix timestamp in seconds)
-	seconds := int64(*float64Ptr)
-	nanoseconds := int64((*float64Ptr - float64(seconds)) * 1e9)
+	seconds := int64(float64Value)
+	nanoseconds := int64((float64Value - float64(seconds)) * 1e9)
 	t := time.Unix(seconds, nanoseconds)
 
 	// Push the new time.Time pointer back onto the stack
@@ -164,7 +164,7 @@ func AddSecondsToTime(m *Machine) error {
 	// Pop the first element (seconds to add)
 	secondsPtr, ok := m.s.Pop()
 
-	seconds, ok := secondsPtr.(*int)
+	seconds, ok := secondsPtr.(int)
 	if !ok {
 		return errors.New("first element must be a pointer to int")
 	}
@@ -178,7 +178,7 @@ func AddSecondsToTime(m *Machine) error {
 	}
 
 	// Create a new time by adding seconds to the original time
-	newTime := timeVal.Add(time.Duration(*seconds) * time.Second)
+	newTime := timeVal.Add(time.Duration(seconds) * time.Second)
 
 	// Push the new time pointer back onto the stack
 	m.s.Push(&newTime)

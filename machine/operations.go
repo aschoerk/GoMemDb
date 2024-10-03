@@ -50,7 +50,7 @@ func OrBooleans(m *Machine) error {
 	bool1, ok1 := b1.(bool)
 	bool2, ok2 := b2.(bool)
 	if !ok1 || !ok2 {
-		return newError("top two elements are not *bool")
+		return newError("top two elements are not bool")
 	}
 
 	m.s.Push(bool1 || bool2)
@@ -184,7 +184,7 @@ func AddFloats(m *Machine) error {
 	float1, ok1 := f1.(float64)
 	float2, ok2 := f2.(float64)
 	if !ok1 || !ok2 {
-		return newError("top two elements are not *float64")
+		return newError("top two elements are not float64")
 	}
 
 	m.s.Push(float1 + float2)
@@ -205,7 +205,7 @@ func MultiplyFloats(m *Machine) error {
 	float1, ok1 := f1.(float64)
 	float2, ok2 := f2.(float64)
 	if !ok1 || !ok2 {
-		return newError("top two elements are not *float64")
+		return newError("top two elements are not float64")
 	}
 
 	m.s.Push(float1 * float2)
@@ -226,7 +226,7 @@ func DivideFloats(m *Machine) error {
 	float1, ok1 := f1.(float64)
 	float2, ok2 := f2.(float64)
 	if !ok1 || !ok2 {
-		return newError("top two elements are not *float64")
+		return newError("top two elements are not float64")
 	}
 
 	if float2 == 0 {
@@ -251,7 +251,7 @@ func ModuloFloats(m *Machine) error {
 	float1, ok1 := f1.(float64)
 	float2, ok2 := f2.(float64)
 	if !ok1 || !ok2 {
-		return newError("top two elements are not *float64")
+		return newError("top two elements are not float64")
 	}
 
 	if float2 == 0 {
@@ -276,7 +276,7 @@ func SubtractFloats(m *Machine) error {
 	float1, ok1 := f1.(float64)
 	float2, ok2 := f2.(float64)
 	if !ok1 || !ok2 {
-		return newError("top two elements are not *float64")
+		return newError("top two elements are not float64")
 	}
 
 	m.s.Push(float1 - float2)
@@ -349,7 +349,7 @@ func SubtractTimestamps(m *Machine) error {
 	time1, ok1 := t1.(time.Time)
 	time2, ok2 := t2.(time.Time)
 	if !ok1 || !ok2 {
-		return newError("top two elements are not *time.Time")
+		return newError("top two elements are not time.Time")
 	}
 
 	m.s.Push(time1.Sub(time2))
@@ -370,7 +370,7 @@ func AddIntToTimestamp(m *Machine) error {
 	intVal, ok1 := i.(int64)
 	timeVal, ok2 := t.(time.Time)
 	if !ok1 || !ok2 {
-		return newError("top elements are not *int and *time.Time")
+		return newError("top elements are not int and time.Time")
 	}
 
 	m.s.Push(timeVal.Add(time.Duration(intVal) * time.Second))
@@ -391,7 +391,7 @@ func AddFloatToTimestamp(m *Machine) error {
 	floatVal, ok1 := f.(float64)
 	timeVal, ok2 := t.(time.Time)
 	if !ok1 || !ok2 {
-		return newError("top elements are not *float64 and *time.Time")
+		return newError("top elements are not float64 and *time.Time")
 	}
 
 	m.s.Push(timeVal.Add(time.Duration(floatVal * float64(time.Second))))
@@ -412,7 +412,7 @@ func SubtractIntFromTimestamp(m *Machine) error {
 	intVal, ok1 := i.(int64)
 	timeVal, ok2 := t.(time.Time)
 	if !ok1 || !ok2 {
-		return newError("top elements are not *int and *time.Time")
+		return newError("top elements are not int and time.Time")
 	}
 
 	m.s.Push(timeVal.Add(-time.Duration(intVal) * time.Second))
@@ -433,7 +433,7 @@ func SubtractFloatFromTimestamp(m *Machine) error {
 	floatVal, ok1 := f.(float64)
 	timeVal, ok2 := t.(time.Time)
 	if !ok1 || !ok2 {
-		return newError("top elements are not *float64 and *time.Time")
+		return newError("top elements are not float64 and time.Time")
 	}
 
 	m.s.Push(timeVal.Add(-time.Duration(floatVal * float64(time.Second))))

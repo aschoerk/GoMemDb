@@ -28,11 +28,11 @@ func BooleanToInt(m *Machine) error {
 	}
 	v, _ := s.Pop()
 
-	b, ok := v.(*bool)
+	b, ok := v.(bool)
 	if !ok {
-		return newError("top element is not a *bool")
+		return newError("top element is not a bool")
 	}
-	if *b {
+	if b {
 		s.Push(1)
 	} else {
 		s.Push(0)
@@ -47,11 +47,11 @@ func BooleanToFloat(m *Machine) error {
 		return err
 	}
 	v, _ := s.Pop()
-	b, ok := v.(*bool)
+	b, ok := v.(bool)
 	if !ok {
-		return newError("top element is not a *bool")
+		return newError("top element is not a bool")
 	}
-	if *b {
+	if b {
 		s.Push(1.0)
 	} else {
 		s.Push(0.0)
@@ -66,11 +66,11 @@ func BooleanToString(m *Machine) error {
 		return err
 	}
 	v, _ := s.Pop()
-	b, ok := v.(*bool)
+	b, ok := v.(bool)
 	if !ok {
-		return newError("top element is not a *bool")
+		return newError("top element is not a bool")
 	}
-	s.Push(strconv.FormatBool(*b))
+	s.Push(strconv.FormatBool(b))
 	return nil
 }
 
@@ -141,11 +141,11 @@ func FloatToBoolean(m *Machine) error {
 		return err
 	}
 	v, _ := s.Pop()
-	f, ok := v.(*float64)
+	f, ok := v.(float64)
 	if !ok {
-		return newError("top element is not a *float64")
+		return newError("top element is not a float64")
 	}
-	s.Push(*f != 0)
+	s.Push(f != 0)
 	return nil
 }
 
@@ -156,11 +156,11 @@ func FloatToInt(m *Machine) error {
 		return err
 	}
 	v, _ := s.Pop()
-	f, ok := v.(*float64)
+	f, ok := v.(float64)
 	if !ok {
-		return newError("top element is not a *float64")
+		return newError("top element is not a float64")
 	}
-	s.Push(int(math.Round(*f)))
+	s.Push(int64(math.Round(f)))
 	return nil
 }
 
@@ -171,11 +171,11 @@ func FloatToString(m *Machine) error {
 		return err
 	}
 	v, _ := s.Pop()
-	f, ok := v.(*float64)
+	f, ok := v.(float64)
 	if !ok {
-		return newError("top element is not a *float64")
+		return newError("top element is not a float64")
 	}
-	s.Push(fmt.Sprintf("%f", *f))
+	s.Push(fmt.Sprintf("%f", f))
 	return nil
 }
 
@@ -186,11 +186,11 @@ func FloatToTimestamp(m *Machine) error {
 		return err
 	}
 	v, _ := s.Pop()
-	f, ok := v.(*float64)
+	f, ok := v.(float64)
 	if !ok {
-		return newError("top element is not a *float64")
+		return newError("top element is not a float64")
 	}
-	sec, dec := math.Modf(*f)
+	sec, dec := math.Modf(f)
 	s.Push(time.Unix(int64(sec), int64(dec*1e9)))
 	return nil
 }
@@ -301,7 +301,7 @@ func TimestampToInteger(m *Machine) error {
 		return newError("top element is not a time.Time")
 	}
 
-	s.Push(int(timeVal.Unix()))
+	s.Push(int64(timeVal.Unix()))
 	return nil
 }
 
