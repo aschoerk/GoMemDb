@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"reflect"
 	"strings"
+	"time"
 
 	"github.com/aschoerk/go-sql-mem/parser"
 	"github.com/gorilla/mux"
@@ -96,6 +97,59 @@ func extractStatementID(w http.ResponseWriter, r *http.Request) (string, bool) {
 	}
 }
 
+// convert args into standard types used in stackmachine
+func convertArgs(args []driver.Value, types *[]int) []driver.Value {
+	res := make([]driver.Value, len(args))
+	for ix, arg := range args {
+		switch v := arg.(type) {
+		case int:
+			res[ix] = int64(v)
+		case int32:
+			res[ix] = int64(v)
+		case int16:
+			res[ix] = int64(v)
+		case uint:
+			res[ix] = int64(v)
+		case uint16:
+			res[ix] = int64(v)
+		case uint32:
+			res[ix] = int64(v)
+		case uint64:
+			res[ix] = int64(v)
+		case uint8:
+			res[ix] = int64(v)
+		case float32:
+		case float64:
+			f := float64(v)
+			if types != nil {
+				if (*types)[ix] == parser.INTEGER {
+					res[ix] = int64(v)
+				} else {
+					res[ix] = f
+				}
+			} else if f == float64(int64(v)) {
+				res[ix] = int64(v)
+			} else {
+				res[ix] = f
+			}
+		case string:
+			if types != nil && (*types)[ix] == parser.TIMESTAMP || types == nil {
+				t, err := time.Parse(time.RFC3339, v)
+				if err != nil {
+					res[ix] = v
+				} else {
+					res[ix] = t
+				}
+			} else {
+				res[ix] = v
+			}
+		default:
+			res[ix] = v
+		}
+	}
+	return res
+}
+
 func (s *Server) closeConnection(w http.ResponseWriter, r *http.Request) {
 	connID, ok := extractConnectionID(w, r)
 	if !ok {
@@ -161,6 +215,7 @@ func (s *Server) evaluateRequest(w http.ResponseWriter, r *http.Request) (*Serve
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return nil, nil, false
 	}
+	args = convertArgs(args, nil)
 	return stmt, args, true
 }
 

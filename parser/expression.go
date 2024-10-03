@@ -391,6 +391,9 @@ func calcOperationCommand(opType int, destType int, leftType int, rightType int)
 			}
 		}
 	case LIKE:
+		if rightType != STRING {
+			return nil, errors.New("expected string as right operand of like")
+		}
 		return LikeStrings, nil
 	default:
 		res := GetComparisonFunction(opType, leftType)
