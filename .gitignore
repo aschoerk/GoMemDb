@@ -54,3 +54,4 @@ parser/tokenizer.go
 parser/sql.y.output
 go-sql-mem.iml
 example
+tests/__debug_bin*
