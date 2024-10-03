@@ -8,7 +8,7 @@ import (
 // TestOrderBy tests various ORDER BY scenarios
 func TestOrderBy(t *testing.T) {
 	// Connect to the database
-	db, err := sql.Open("GoSql", "memory")
+	db, err := sql.Open("GoSqlRest", "http://localhost:8080")
 	if err != nil {
 		t.Fatalf("Failed to connect to database: %v", err)
 	}
@@ -35,7 +35,7 @@ func TestOrderBy(t *testing.T) {
 		{
 			name:     "Order sum of id and name by number ascending",
 			query:    "SELECT '' + id + name FROM users ORDER BY 1 DESC",
-			expected: []string{"2Charlie", "1Alice", "0Bob"},
+			expected: []string{"3Charlie", "2Alice", "1Bob"},
 		},
 		{
 			name:     "Order by fieldname descending",

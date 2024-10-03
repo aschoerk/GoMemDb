@@ -100,6 +100,7 @@ func (r *GoSqlUpdateRequest) Exec(args []Value) (Result, error) {
 
 	results := make([]Value, len(r.columnixs))
 
+	affectedRows := 0
 	for _, record := range r.table.Data {
 		res, err := whereCommands[0].m.Execute(&args, &record, nil)
 		if err != nil {
@@ -110,6 +111,7 @@ func (r *GoSqlUpdateRequest) Exec(args []Value) (Result, error) {
 			return nil, fmt.Errorf("expected boolean expression as where term")
 		}
 		if whereResult {
+			affectedRows++
 			for ix, command := range commands {
 				result, err := command.m.Execute(&args, &record, nil)
 				if err != nil {
@@ -123,7 +125,7 @@ func (r *GoSqlUpdateRequest) Exec(args []Value) (Result, error) {
 		}
 	}
 
-	return nil, nil // TODO Result
+	return GoSqlResult{r.table.LastId, int64(affectedRows)}, nil
 }
 
 func (r *GoSqlDeleteRequest) NumInput() int {
@@ -149,6 +151,7 @@ func (r *GoSqlDeleteRequest) Exec(args []Value) (Result, error) {
 	if err != nil {
 		return nil, err
 	}
+	affectedRows := 0
 	todelete := []int{}
 	for ix, record := range table.Data {
 		res, err := whereCommands[0].m.Execute(&args, &record, nil)
@@ -166,7 +169,8 @@ func (r *GoSqlDeleteRequest) Exec(args []Value) (Result, error) {
 	slices.Reverse(todelete)
 	for _, ix := range todelete {
 		table.Data = slices.Delete(table.Data, ix, ix+1)
+		affectedRows++
 	}
 
-	return nil, nil // TODO: Result
+	return GoSqlResult{table.LastId, int64(affectedRows)}, nil
 }

@@ -8,7 +8,7 @@ import (
 
 func TestSQLUpdates(t *testing.T) {
 	// Open a test database connection
-	db, err := sql.Open("GoSql", "memory")
+	db, err := sql.Open("GoSqlRest", "http://localhost:8080")
 	if err != nil {
 		t.Fatalf("Error opening database: %v", err)
 	}
