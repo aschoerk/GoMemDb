@@ -22,6 +22,11 @@ A project allowing me to use go in a not so simple environment. The idea is to i
 
 ### How do I get set up? ###
 
+* Build
+** goyacc: go install golang.org/x/tools/cmd/goyacc@latest
+** https://github.com/pebbe/flexgo.git, (.configure, make, make install - possibly necessary to use aclocal.m4)
+** just
+** just run - compiles everything and starts example.go 
 * Start Server using driver.StartServer()
 * Dependencies
 * Database configuration

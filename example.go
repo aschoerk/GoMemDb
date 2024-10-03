@@ -5,12 +5,11 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/aschoerk/go-sql-mem/driver"
 	_ "github.com/aschoerk/go-sql-mem/driver"
 )
 
 func main() {
-	driver.StartServer()
+	// driver.StartServer()
 	// Open the database
 	// db, err := sql.Open("sqlite3", "./example.db")
 	db, err := sql.Open("GoSql", "memory")
