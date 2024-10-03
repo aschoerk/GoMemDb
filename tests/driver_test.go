@@ -52,7 +52,7 @@ func TestSQLDriver(t *testing.T) {
 			insertArgs:  []interface{}{42},
 			selectQuery: "SELECT int_col FROM test_table WHERE int_col = ?",
 			selectArgs:  []interface{}{42},
-			expected:    42.0,
+			expected:    42,
 		}, {
 			name:        "Insert and select boolean true",
 			insertQuery: "INSERT INTO test_table (bool_col) VALUES (?)",
