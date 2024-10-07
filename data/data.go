@@ -206,7 +206,7 @@ func (t *GoSqlTable) Delete(recordId int64, transaction int64) {
 
 // only one thread may do update or delete . Exclusive Locks must guarantee this
 func (t *GoSqlTable) Update(recordId int64, recordValues []Value, transaction int64) {
-	for _, record := range t.data {
+	for ix, record := range t.data {
 		if record.id == recordId {
 			for _, version := range record.Versions {
 				if version.xmax == 0 {
@@ -215,6 +215,7 @@ func (t *GoSqlTable) Update(recordId int64, recordValues []Value, transaction in
 			}
 			recordVersion := RecordVersion{recordValues, transaction, 0}
 			record.Versions = append(record.Versions, recordVersion)
+			t.data[ix] = record
 		}
 	}
 }

@@ -128,7 +128,7 @@ func (r *GoSqlUpdateRequest) Exec(args []Value) (Result, error) {
 			for ix, result := range results {
 				resultRecord[r.columnixs[ix]] = result
 			}
-			r.table.Update(record.Id, record.Data, 0)
+			r.table.Update(record.Id, resultRecord, 0)
 		}
 	}
 
