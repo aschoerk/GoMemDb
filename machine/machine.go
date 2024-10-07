@@ -14,9 +14,9 @@ type Command func(m *Machine) error
 type Machine struct {
 	commands []Command
 	s        Stack
-	p        *[]Value
-	r        *[]Value
-	r2       *[]Value
+	p        []Value
+	r        []Value
+	r2       []Value
 	ix       int
 }
 
@@ -30,38 +30,38 @@ func (m *Machine) AddCommandBeforeLast(c Command) {
 
 func (m *Machine) ReturnPlaceHolder(ix int) (Value, error) {
 
-	if len(*m.p) <= ix || ix < 0 {
+	if len(m.p) <= ix || ix < 0 {
 		return -1, errors.New("Invalid ix")
 	}
-	return (*m.p)[ix], nil
+	return (m.p)[ix], nil
 }
 
 func AddPushPlaceHolder(m *Machine, ix int) {
 	m.AddCommand(func(m *Machine) error {
-		if ix < 0 || ix >= len(*m.p) {
+		if ix < 0 || ix >= len(m.p) {
 			return errors.New(fmt.Sprintf("Invalid placeholder ix: %d", ix))
 		}
-		m.s.Push((*m.p)[ix])
+		m.s.Push((m.p)[ix])
 		return nil
 	})
 }
 
 func AddPushAttribute(m *Machine, ix int) {
 	m.AddCommand(func(m *Machine) error {
-		if ix < 0 || ix >= len(*m.r) {
+		if ix < 0 || ix >= len(m.r) {
 			return errors.New(fmt.Sprintf("Invalid record ix: %d", ix))
 		}
-		m.s.Push((*m.r)[ix])
+		m.s.Push((m.r)[ix])
 		return nil
 	})
 }
 
 func AddPushAttribute2(m *Machine, ix int) {
 	m.AddCommand(func(m *Machine) error {
-		if ix < 0 || ix >= len(*m.r2) {
+		if ix < 0 || ix >= len(m.r2) {
 			return errors.New(fmt.Sprintf("Invalid record2 ix: %d", ix))
 		}
-		m.s.Push((*m.r2)[ix])
+		m.s.Push((m.r2)[ix])
 		return nil
 	})
 }
@@ -82,7 +82,7 @@ func AddConversion(m *Machine, conversion func(m *Machine) error, preLast bool) 
 }
 
 // NewMachine creates a new Machine instance
-func NewMachine(args *[]Value) *Machine {
+func NewMachine(args []Value) *Machine {
 	return &Machine{
 		commands: make([]Command, 0),
 		s:        NewStack(),
@@ -119,16 +119,16 @@ func ReturnInverseIfNotEqualZero(m *Machine) error {
 	return nil
 }
 
-func (m *Machine) Execute(placeHolders *[]Value, record *[]Value, record2 *[]Value) (Value, error) {
+func (m *Machine) Execute(placeHolders []Value, record []Value, record2 []Value) (Value, error) {
 	defer func() {
-		fmt.Println("\n**********************************************\n")
+		fmt.Println("\n**********************************************")
 	}()
 	m.s.Clear()
 	m.p = placeHolders
 	m.r = record
 	m.r2 = record2
 	m.ix = 0
-	fmt.Println("\n**********************************************\n")
+	fmt.Println("\n**********************************************")
 	fmt.Printf("Starting %d commands \n", len(m.commands))
 	for {
 		if m.ix >= len(m.commands) {

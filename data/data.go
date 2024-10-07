@@ -2,16 +2,21 @@ package data
 
 import (
 	"database/sql/driver"
-	"errors"
+	. "database/sql/driver"
 	"fmt"
 	"slices"
 	"sync"
+	"sync/atomic"
 )
 
 const (
 	PRIMARY_AUTOINCREMENT = 1
 	DEFAULT_MAX_LENGTH    = 40
 )
+
+var tablesMu sync.Mutex
+
+var NULL_RECORD = Record{-1, nil}
 
 type GoSqlColumn struct {
 	Name       string
@@ -22,33 +27,139 @@ type GoSqlColumn struct {
 	Hidden     bool
 }
 
-type RecordVersion struct {
-	Data      []driver.Value
-	Readlocks []int // the transactions currently relying on this version
-	Writelock int   // the transaction which successfully wrote the record
-	WriteTime int64 // end of transaction when it was  written last
-	deleted   bool
-	inserted  bool
+type TableIterator interface {
+	Next() (Record, bool)
+}
+
+type Table interface {
+	Name() string
+	Columns() []GoSqlColumn
+	Data() *[][]Value
+	NewIterator(transaction int64) TableIterator
+	FindColumn(name string) (int, error)
+	Insert(recordValues []Value, transaction int64) int64
+	Update(recordId int64, recordValues []Value, transaction int64)
+	Delete(recordId int64, transaction int64)
 }
 
 type Record struct {
-	Versions  []RecordVersion
-	Writelock int // the transaction which successfully set the current writelock
+	Id   int64
+	Data []driver.Value
+}
+
+type RecordVersion struct {
+	Data []driver.Value
+	xmin int64
+	xmax int64
+}
+
+type VersionedRecord struct {
+	id       int64
+	Versions []RecordVersion
+}
+
+type GoSqlTableIterator struct {
+	table *GoSqlTable
+	xid   int64
+	ix    int
+}
+
+type TempTableIterator struct {
+	table *TempTable
+	ix    int
+}
+
+func (it *TempTableIterator) Next() (Record, bool) {
+	if len(it.table.Tempdata) < it.ix {
+		it.ix++
+		return Record{-1, it.table.Tempdata[it.ix-1]}, true
+	} else {
+		return NULL_RECORD, false
+	}
+}
+
+type BaseTable struct {
+	TableName    string
+	TableColumns []GoSqlColumn
 }
 
 type GoSqlTable struct {
-	Name    string
-	Columns []GoSqlColumn
-	LastId  int64
-	data    []Record
+	BaseTable
+	ids          map[string]int64
+	NextRecordId atomic.Int64
+	data         []VersionedRecord
+	iterators    []TableIterator
+	mu           sync.Mutex
+}
+
+func (t *BaseTable) Name() string {
+	return t.TableName
+}
+
+func (t *BaseTable) Columns() []GoSqlColumn {
+	return t.TableColumns
+}
+
+type TempTable struct {
+	BaseTable
+	Tempdata [][]Value
+}
+
+func (t *TempTable) Data() *[][]Value {
+	return &t.Tempdata
+}
+
+func (t *GoSqlTable) Data() *[][]Value {
+	return nil
+}
+
+func NewTempTable(name string, columns []GoSqlColumn) Table {
+	res := &TempTable{BaseTable{name, columns}, [][]Value{}}
+	tablesMu.Lock()
+	defer tablesMu.Unlock()
+	Tables[name] = res
+	return res
 }
 
 func NewTable(name string, columns []GoSqlColumn) *GoSqlTable {
-	return &GoSqlTable{name, columns, 0, []Record{}}
+	res := &GoSqlTable{BaseTable{name, columns}, make(map[string]int64), atomic.Int64{}, []VersionedRecord{}, []TableIterator{}, sync.Mutex{}}
+	res.NextRecordId.Store(1)
+	tablesMu.Lock()
+	defer tablesMu.Unlock()
+	Tables[name] = res
+	return res
 }
 
-func (t *GoSqlTable) FindColumn(name string) (int, error) {
-	for ix, col := range t.Columns {
+func (t *TempTable) NewIterator(transaction int64) TableIterator {
+	res := TempTableIterator{t, 0}
+	return &res
+}
+
+func (t *GoSqlTable) NewIterator(transaction int64) TableIterator {
+	res := GoSqlTableIterator{t, transaction, 0}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.iterators = append(t.iterators, &res)
+	return &res
+}
+
+func (ti *GoSqlTableIterator) Next() (Record, bool) {
+	if ti.ix < len(ti.table.data) {
+		record := ti.table.data[ti.ix]
+		ti.ix++
+		actVersion := &record.Versions[len(record.Versions)-1]
+		return Record{record.id, actVersion.Data}, true
+	}
+	ti.table.mu.Lock()
+	defer ti.table.mu.Unlock()
+	ti.table.iterators = slices.DeleteFunc(ti.table.iterators, func(i TableIterator) bool {
+		return i.(*GoSqlTableIterator) == ti
+	})
+	return NULL_RECORD, false
+}
+
+func (t BaseTable) FindColumn(name string) (int, error) {
+	for ix, col := range t.Columns() {
 		if col.Name == name {
 			return ix, nil
 		}
@@ -56,139 +167,71 @@ func (t *GoSqlTable) FindColumn(name string) (int, error) {
 	return -1, fmt.Errorf("Did not find column with name %s", name)
 }
 
-func (v *RecordVersion) AlreadyReserved(transaction int) bool {
-	return v.Writelock == transaction
+func (t *GoSqlTable) Increment(columnName string) int64 {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	id, ok := t.ids[columnName]
+	if !ok {
+		t.ids[columnName] = 1
+		return 1
+	} else {
+		t.ids[columnName] = id + 1
+		return id
+	}
 }
 
-func (v *RecordVersion) ReadInThisTransaction(transaction int) (bool, error) {
-	if v.Writelock == transaction {
-
-		return false, fmt.Errorf("Record was already written successfully by running tra %d", transaction)
-	}
-	return slices.Contains(v.Readlocks, transaction), nil
+func (t *GoSqlTable) Insert(recordValues []Value, transaction int64) int64 {
+	recordVersion := RecordVersion{recordValues, transaction, 0}
+	id := t.NextRecordId.Load()
+	record := VersionedRecord{id, []RecordVersion{recordVersion}}
+	t.NextRecordId.Add(1)
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.data = append(t.data, record)
+	return id
 }
 
-var mu sync.Mutex
-
-var AlreadyReservedError = errors.New("already reserved")
-
-func (t *GoSqlTable) reserveForTransactionOrFindReservedVersion(ix int, transaction int) ([]driver.Value, error) {
-	mu.Lock()
-	defer mu.Unlock()
-	r := t.data[ix]
-	if r.Writelock != -1 {
-		return nil, AlreadyReservedError
-	}
-	var youngestVersion *RecordVersion
-	for _, v := range r.Versions {
-		if v.AlreadyReserved(transaction) {
-			return v.Data, nil
-		}
-		alreadyRead, err := v.ReadInThisTransaction(transaction)
-		if err != nil {
-			return nil, err
-		} else {
-			if alreadyRead {
-				slices.DeleteFunc(v.Readlocks, func(e int) bool {
-					return e == transaction
-				})
-				result := slices.Clone(v.Data)
-				r.Versions = append(r.Versions, RecordVersion{result, []int{transaction}, transaction, -1})
-				break
-			} else {
-				if youngestVersion == nil {
-					youngestVersion = &v
-				} else {
-					if v.WriteTime > 0 && v.WriteTime < youngestVersion.WriteTime {
-						youngestVersion = &v
-					}
+// only one thread may do update or delete . Exclusive Locks must guarantee this
+func (t *GoSqlTable) Delete(recordId int64, transaction int64) {
+	for _, record := range t.data {
+		if record.id == recordId {
+			for _, version := range record.Versions {
+				if version.xmax == 0 {
+					version.xmax = transaction
 				}
 			}
 		}
 	}
-	if len(youngestVersion.Readlocks) == 0 {
-		youngestVersion.Readlocks = append(youngestVersion.Readlocks, transaction)
-		youngestVersion.Writelock = transaction
-		return youngestVersion.Data, nil
-		// preserve writetime in case of rollback
-	} else {
-		data := slices.Clone(youngestVersion.Data)
-		r.Versions = append(r.Versions, RecordVersion{data, []int{transaction}, transaction, -1})
-		return data, nil
-	}
 }
 
-func (t *GoSqlTable) getYoungestOrAlreadyRead(ix int, transaction int) ([]driver.Value, error) {
-	mu.Lock()
-	defer mu.Unlock()
-	r := t.data[ix]
-	for _, v := range r.Versions {
-		alreadyRead, err := v.ReadInThisTransaction(transaction)
-		if err != nil {
-			return nil, err
-		} else if alreadyRead {
-			return v.Data, nil
-		}
-	}
-
-	var youngestVersion *RecordVersion
-	for _, v := range r.Versions {
-		if youngestVersion == nil {
-			youngestVersion = &v
-		} else {
-			if v.WriteTime > 0 && v.WriteTime < youngestVersion.WriteTime {
-				youngestVersion = &v
+// only one thread may do update or delete . Exclusive Locks must guarantee this
+func (t *GoSqlTable) Update(recordId int64, recordValues []Value, transaction int64) {
+	for _, record := range t.data {
+		if record.id == recordId {
+			for _, version := range record.Versions {
+				if version.xmax == 0 {
+					version.xmax = transaction
+				}
 			}
+			recordVersion := RecordVersion{recordValues, transaction, 0}
+			record.Versions = append(record.Versions, recordVersion)
 		}
-	}
-	youngestVersion.Readlocks = append(youngestVersion.Readlocks, transaction)
-	return youngestVersion.Data, nil
-}
-
-func (t *GoSqlTable) GetRecord(ix int, transaction int, forWrite bool) ([]driver.Value, error) {
-	if ix < 0 || ix > len(t.data) {
-		return nil, fmt.Errorf("Invalid index %d when reading from table %s", ix, t.Name)
-	}
-	if forWrite { // need my own version if there are already readlocks
-		for {
-			data, err := t.reserveForTransactionOrFindReservedVersion(ix, transaction)
-			if err == nil {
-				return data, nil
-			} else if err != AlreadyReservedError {
-				return nil, err
-			} else {
-				// wait for end of transaction
-			}
-		}
-	} else {
-		return t.getYoungestOrAlreadyRead(ix, transaction)
 	}
 }
 
-func (t *GoSqlTable) InsRecord(record []driver.Value, transaction int) error {
-	trarecord := Record{[]RecordVersion{RecordVersion{record, []int{}, transaction, 0, false, true}}, transaction}
-	t.data = append(t.data, trarecord)
-	return nil
+func (t *TempTable) Insert(recordValues []Value, transaction int64) int64 {
+	*t.Data() = append(*t.Data(), recordValues)
+	return -1
 }
 
-func (t *GoSqlTable) DelRecord(ix int, transaction int) error {
-	_, err := t.GetRecord(ix, transaction, true)
-	if err != nil {
-		return err
-	}
-	trarecord := t.data[ix]
-	if len(trarecord.Versions) == 1 {
-		t.data[ix].Versions = []RecordVersion{}
-		t.data[ix].Writelock = -1
-	} else {
-		for _, version := range t.data.Versions {
-			if version.Writelock == transaction {
-				version.deleted = true
-			}
-		}
-	}
+func (t *TempTable) Update(recordId int64, recordValues []Value, transaction int64) {
+	panic("not implemented")
+}
+
+func (t *TempTable) Delete(recordId int64, transaction int64) {
+	panic("not implemented")
 }
 
 var (
-	Tables map[string]*GoSqlTable
+	Tables map[string]Table = make(map[string]Table)
 )

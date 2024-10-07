@@ -32,12 +32,12 @@ type SLName struct {
 	hidden bool
 }
 
-func buildSelectList(table *data.GoSqlTable, r *GoSqlSelectRequest) ([]*GoSqlTerm, []SLName, error) {
+func buildSelectList(table data.Table, r *GoSqlSelectRequest) ([]*GoSqlTerm, []SLName, error) {
 	terms := []*GoSqlTerm{}
 	names := []SLName{}
 	for ix, sl := range r.selectList {
 		if sl.Asterisk {
-			for _, col := range table.Columns {
+			for _, col := range table.Columns() {
 				terms = append(terms, &GoSqlTerm{-1, nil, nil, &Ptr{col.Name, IDENTIFIER}})
 				names = append(names, SLName{col.Name, false})
 			}
@@ -66,7 +66,7 @@ func buildSelectList(table *data.GoSqlTable, r *GoSqlSelectRequest) ([]*GoSqlTer
 						if err != nil {
 							return nil, nil, err
 						}
-						col := table.Columns[colix]
+						col := table.Columns()[colix]
 						terms = append(terms, &GoSqlTerm{-1, nil, nil, &Ptr{col.Name, IDENTIFIER}})
 						names = append(names, SLName{col.Name, true})
 
@@ -111,12 +111,12 @@ func (r *GoSqlSelectRequest) Query(args []Value) (Rows, error) {
 		}
 		placeHolderOffset := 0
 		evaluationContexts := []*EvaluationContext{}
-		evaluationResults, err := Terms2Commands(terms, &args, table, &placeHolderOffset)
+		evaluationResults, err := Terms2Commands(terms, args, table, &placeHolderOffset)
 		if err != nil {
 			return nil, err
 		}
 		evaluationContexts = append(evaluationContexts, evaluationResults...)
-		temptableName, err := createAndFillTempTable(r, evaluationContexts, &args, &names, whereExecutionContext, havingExecutionContext, sizeSelectList)
+		temptableName, err := createAndFillTempTable(r, evaluationContexts, args, &names, whereExecutionContext, havingExecutionContext, sizeSelectList)
 		if err != nil {
 			return nil, err
 		}
@@ -134,16 +134,15 @@ func createTempTable(evaluationContexts []*EvaluationContext, names *[]SLName, s
 			cols = append(cols, data.GoSqlColumn{(*names)[ix].name, execution.resultType, execution.resultType, 0, 0, (*names)[ix].hidden})
 		}
 	}
-
 	name := uuid.New().String()
-	data.Tables[name] = data.NewTable(name, cols)
+	data.NewTempTable(name, cols)
 	return name
 }
 
 func createAndFillTempTable(
 	query *GoSqlSelectRequest,
 	evaluationContexts []*EvaluationContext,
-	args *[]Value,
+	args []Value,
 	names *[]SLName,
 	whereExecutionContext int,
 	havingExecutionContext int,
@@ -154,16 +153,17 @@ func createAndFillTempTable(
 	table := data.Tables[query.from]
 	tableix := 0
 
+	it := table.NewIterator(0)
 	for {
-		if query.state == EndOfRows || len(table.Data) <= tableix {
+		record, ok := it.Next()
+		if query.state == EndOfRows || !ok {
 			query.state = EndOfRows
 			break
 		}
-		record := &table.Data[tableix]
 		if whereExecutionContext != -1 {
 			whereCheck := evaluationContexts[whereExecutionContext]
 
-			result, err := whereCheck.m.Execute(args, record, nil)
+			result, err := whereCheck.m.Execute(args, record.Data, nil)
 			if err != nil {
 				return "", err
 			}
@@ -175,13 +175,13 @@ func createAndFillTempTable(
 				return "", errors.New("Expected boolean as result of evaluation of where")
 			}
 			if whereResult {
-				err := calcRecord(tempTable, args, evaluationContexts, record, sizeSelectList)
+				err := calcRecord(tempTable, args, evaluationContexts, record.Data, sizeSelectList)
 				if err != nil {
 					return "", err
 				}
 			}
 		} else {
-			err := calcRecord(tempTable, args, evaluationContexts, record, sizeSelectList)
+			err := calcRecord(tempTable, args, evaluationContexts, record.Data, sizeSelectList)
 			if err != nil {
 				return "", err
 			}
@@ -194,9 +194,9 @@ func createAndFillTempTable(
 			return "", err
 		}
 		slices.SortFunc(
-			tempTable.Data,
+			*tempTable.Data(),
 			func(a, b []Value) int {
-				res, err := e.m.Execute(args, &a, &b)
+				res, err := e.m.Execute(args, a, b)
 				if err != nil {
 					panic(err.Error())
 				}
@@ -207,7 +207,7 @@ func createAndFillTempTable(
 	return name, nil
 }
 
-func calcRecord(tempTable *data.GoSqlTable, args *[]Value, evaluationContexts []*EvaluationContext, record *[]Value, sizeSelectList int) error {
+func calcRecord(tempTable data.Table, args []Value, evaluationContexts []*EvaluationContext, record []Value, sizeSelectList int) error {
 	destRecord := []Value{}
 	for ix, execution := range evaluationContexts {
 		if ix < sizeSelectList {
@@ -219,7 +219,7 @@ func calcRecord(tempTable *data.GoSqlTable, args *[]Value, evaluationContexts []
 			}
 		}
 	}
-	tempTable.Data = append(tempTable.Data, destRecord)
+	*tempTable.Data() = append(*tempTable.Data(), destRecord)
 	return nil
 }
 
@@ -240,7 +240,7 @@ func (rows *GoSqlRows) Columns() []string {
 	return res
 }
 
-func (rows *GoSqlRows) ResultTable() *data.GoSqlTable {
+func (rows *GoSqlRows) ResultTable() data.Table {
 	table := data.Tables[rows.temptableName]
 	return table
 }
@@ -252,13 +252,13 @@ func (rows *GoSqlRows) Close() error {
 
 func (rows *GoSqlRows) Next(dest []Value) error {
 	table := data.Tables[rows.temptableName]
-	if len(table.Data) <= rows.tableix {
+	if len(*table.Data()) <= rows.tableix {
 		rows.query.state = EndOfRows
 		return io.EOF
 	}
 	destix := 0
-	for ix, el := range table.Data[rows.tableix] {
-		if !table.Columns[ix].Hidden {
+	for ix, el := range (*table.Data())[rows.tableix] {
+		if !table.Columns()[ix].Hidden {
 			if destix > len(dest) {
 				return errors.New("dest can not hold al result values")
 			}

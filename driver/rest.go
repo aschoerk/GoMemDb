@@ -274,10 +274,10 @@ func (s *Server) queryStatement(w http.ResponseWriter, r *http.Request) {
 	tmpRows := rows.(*parser.GoSqlRows)
 	if tmpRows.ResultTable() != nil {
 		types := []int{}
-		for _, col := range tmpRows.ResultTable().Columns {
+		for _, col := range tmpRows.ResultTable().Columns() {
 			types = append(types, col.ColType)
 		}
-		result = RowsResult{tmpRows.Columns(), types, tmpRows.ResultTable().Data}
+		result = RowsResult{tmpRows.Columns(), types, *tmpRows.ResultTable().Data()}
 	}
 
 	json.NewEncoder(w).Encode(result)

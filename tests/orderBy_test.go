@@ -8,7 +8,7 @@ import (
 // TestOrderBy tests various ORDER BY scenarios
 func TestOrderBy(t *testing.T) {
 	// Connect to the database
-	db, err := sql.Open("GoSqlRest", "http://localhost:8080")
+	db, err := sql.Open("GoSql", "http://localhost:8080")
 	if err != nil {
 		t.Fatalf("Failed to connect to database: %v", err)
 	}

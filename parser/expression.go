@@ -15,12 +15,12 @@ import (
 type EvaluationContext struct {
 	m                    *Machine
 	lastPlaceHolderIndex int
-	t                    *GoSqlTable
+	t                    Table
 	resultType           int
 	name                 *string
 }
 
-func NewEvaluationContext(args *[]Value, lastPlaceHolderIndex int) EvaluationContext {
+func NewEvaluationContext(args []Value, lastPlaceHolderIndex int) EvaluationContext {
 	return EvaluationContext{NewMachine(args), lastPlaceHolderIndex, nil, -1, nil}
 }
 
@@ -63,7 +63,7 @@ func FindPlaceHoldersInSelect(statement *GoSqlSelectRequest) []*GoSqlTerm {
 	return res
 }
 
-func OrderBy2Commands(orderByList *[]GoSqlOrderBy, table *GoSqlTable) (*EvaluationContext, error) {
+func OrderBy2Commands(orderByList *[]GoSqlOrderBy, table Table) (*EvaluationContext, error) {
 	e := NewEvaluationContext(nil, 0)
 
 	for _, orderByEntry := range *orderByList {
@@ -84,7 +84,8 @@ func OrderBy2Commands(orderByList *[]GoSqlOrderBy, table *GoSqlTable) (*Evaluati
 		}
 		AddPushAttribute(e.m, ix)
 		AddPushAttribute2(e.m, ix)
-		switch table.Columns[ix].ColType {
+		columns := table.Columns()
+		switch columns[ix].ColType {
 		case BOOLEAN:
 			e.m.AddCommand(CompareBool)
 		case INTEGER:
@@ -107,19 +108,19 @@ func OrderBy2Commands(orderByList *[]GoSqlOrderBy, table *GoSqlTable) (*Evaluati
 	return &e, nil
 }
 
-func initPlaceHolders(terms []*GoSqlTerm, args *[]driver.Value, placeHolderOffset *int) {
+func initPlaceHolders(terms []*GoSqlTerm, args []driver.Value, placeHolderOffset *int) {
 	var placeHolders = make([]*GoSqlTerm, 0)
 	for _, term := range terms {
 		placeHolders = term.FindPlaceHolders(placeHolders)
 	}
 	// set placeholder values by first set of args to function as templates for the type
 	for _, placeHolder := range placeHolders {
-		placeHolder.leaf.ptr = (*args)[*placeHolderOffset]
+		placeHolder.leaf.ptr = args[*placeHolderOffset]
 		*placeHolderOffset++
 	}
 }
 
-func Terms2Commands(terms []*GoSqlTerm, args *[]driver.Value, inputTable *GoSqlTable, placeHolderOffset *int) ([]*EvaluationContext, error) {
+func Terms2Commands(terms []*GoSqlTerm, args []driver.Value, inputTable Table, placeHolderOffset *int) ([]*EvaluationContext, error) {
 	initPlaceHolders(terms, args, placeHolderOffset)
 	currentPlaceholderIndex := -1 // TODO: check if -1 is right here
 	res := []*EvaluationContext{}
@@ -263,7 +264,7 @@ func (term *GoSqlTerm) handleLeaf(e *EvaluationContext) (int, error) {
 	}
 	if term.leaf.token == IDENTIFIER {
 		id := term.leaf.ptr.(string)
-		for ix, col := range e.t.Columns {
+		for ix, col := range e.t.Columns() {
 			if col.Name == id {
 				AddPushAttribute(e.m, ix)
 				return col.ParserType, nil

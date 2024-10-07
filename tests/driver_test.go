@@ -9,7 +9,7 @@ import (
 )
 
 func TestSQLDriver(t *testing.T) {
-	db, err := sql.Open("GoSqlRest", "http://localhost:8080")
+	db, err := sql.Open("GoSql", "http://localhost:8080")
 	if err != nil {
 		t.Fatalf("Failed to open database: %v", err)
 	}

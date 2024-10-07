@@ -36,15 +36,15 @@ func (r *GoSqlCreateSchemaRequest) Exec(args []Value) (Result, error) {
 
 func (r *GoSqlCreateTableRequest) Exec(args []Value) (Result, error) {
 	if Tables == nil {
-		Tables = make(map[string]*GoSqlTable)
+		Tables = make(map[string]Table)
 	}
-	_, exists := Tables[r.table.Name]
+	_, exists := Tables[r.table.Name()]
 	if exists {
 		if r.ifExists == 1 {
-			return GoSqlResult{-1, -1}, fmt.Errorf("table %s already exists", r.table.Name)
+			return GoSqlResult{-1, -1}, fmt.Errorf("table %s already exists", r.table.Name())
 		}
 	} else {
-		Tables[r.table.Name] = data.NewTable(r.table.Name, r.table.Columns)
+		Tables[r.table.Name()] = data.NewTable(r.table.Name(), r.table.Columns())
 	}
 	return &GoSqlResult{-1, 0}, nil
 }

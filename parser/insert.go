@@ -50,15 +50,17 @@ func (r *GoSqlInsertRequest) Exec(args []Value) (Result, error) {
 		}
 		placeHolderOffset := 0
 		insertContexts := [][]*EvaluationContext{}
+		var lastInsertedId int64 = -1
+		var rowsAffected int64 = 0
 		if r.state == Parsed {
 			for _, insertvalues := range r.values {
-				evaluationContexts := make([]*EvaluationContext, len(table.Columns))
-				evaluationResults, err := Terms2Commands(insertvalues, &args, nil, &placeHolderOffset)
+				evaluationContexts := make([]*EvaluationContext, len(table.Columns()))
+				evaluationResults, err := Terms2Commands(insertvalues, args, nil, &placeHolderOffset)
 				if err != nil {
 					return nil, err
 				}
 
-				for colix, col := range table.Columns {
+				for colix, col := range table.Columns() {
 					ix := slices.IndexFunc(r.Columns, func(elem string) bool {
 						return elem == col.Name
 					})
@@ -77,34 +79,34 @@ func (r *GoSqlInsertRequest) Exec(args []Value) (Result, error) {
 				insertContexts = append(insertContexts, evaluationContexts)
 			}
 			for _, insertContext := range insertContexts {
-				record := make([]Value, len(table.Columns))
+				record := make([]Value, len(table.Columns()))
 
 				for colix, _ := range record {
 					executionContext := insertContext[colix]
 					if executionContext != nil {
-						res, err := executionContext.m.Execute(&args, &[]Value{}, nil)
+						res, err := executionContext.m.Execute(args, []Value{}, nil)
 						if err != nil {
 							return nil, err
 						}
 						record[colix] = res
 					} else {
-						columnDef := table.Columns[colix]
+						columnDef := table.Columns()[colix]
 						switch columnDef.Spec2 {
 						case PRIMARY_AUTOINCREMENT:
 							{
-								table.LastId++
-								record[colix] = table.LastId
+								id := table.(*GoSqlTable).Increment(columnDef.Name)
+								record[colix] = id
 							}
 						}
 					}
 				}
-				table.Data = append(table.Data, record)
-
+				lastInsertedId = table.(*GoSqlTable).Insert(record, 0)
+				rowsAffected++
 			}
 			r.state = Executing
 		}
 		if r.state == Executing {
-			return GoSqlResult{int64(table.LastId), 1}, nil
+			return GoSqlResult{lastInsertedId, rowsAffected}, nil
 		}
 		return nil, fmt.Errorf("Invalid state %d for insert statement execute", r.state)
 	}

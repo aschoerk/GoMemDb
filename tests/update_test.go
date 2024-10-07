@@ -4,11 +4,13 @@ import (
 	"database/sql"
 	"testing"
 	"time"
+
+	_ "github.com/aschoerk/go-sql-mem/driver"
 )
 
 func TestSQLUpdates(t *testing.T) {
 	// Open a test database connection
-	db, err := sql.Open("GoSqlRest", "http://localhost:8080")
+	db, err := sql.Open("GoSql", "http://localhost:8080")
 	if err != nil {
 		t.Fatalf("Error opening database: %v", err)
 	}
