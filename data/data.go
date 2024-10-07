@@ -27,6 +27,8 @@ type RecordVersion struct {
 	Readlocks []int // the transactions currently relying on this version
 	Writelock int   // the transaction which successfully wrote the record
 	WriteTime int64 // end of transaction when it was  written last
+	deleted   bool
+	inserted  bool
 }
 
 type Record struct {
@@ -38,7 +40,7 @@ type GoSqlTable struct {
 	Name    string
 	Columns []GoSqlColumn
 	LastId  int64
-	Data    []Record
+	data    []Record
 }
 
 func NewTable(name string, columns []GoSqlColumn) *GoSqlTable {
@@ -73,7 +75,7 @@ var AlreadyReservedError = errors.New("already reserved")
 func (t *GoSqlTable) reserveForTransactionOrFindReservedVersion(ix int, transaction int) ([]driver.Value, error) {
 	mu.Lock()
 	defer mu.Unlock()
-	r := t.Data[ix]
+	r := t.data[ix]
 	if r.Writelock != -1 {
 		return nil, AlreadyReservedError
 	}
@@ -119,7 +121,7 @@ func (t *GoSqlTable) reserveForTransactionOrFindReservedVersion(ix int, transact
 func (t *GoSqlTable) getYoungestOrAlreadyRead(ix int, transaction int) ([]driver.Value, error) {
 	mu.Lock()
 	defer mu.Unlock()
-	r := t.Data[ix]
+	r := t.data[ix]
 	for _, v := range r.Versions {
 		alreadyRead, err := v.ReadInThisTransaction(transaction)
 		if err != nil {
@@ -144,7 +146,7 @@ func (t *GoSqlTable) getYoungestOrAlreadyRead(ix int, transaction int) ([]driver
 }
 
 func (t *GoSqlTable) GetRecord(ix int, transaction int, forWrite bool) ([]driver.Value, error) {
-	if ix < 0 || ix > len(t.Data) {
+	if ix < 0 || ix > len(t.data) {
 		return nil, fmt.Errorf("Invalid index %d when reading from table %s", ix, t.Name)
 	}
 	if forWrite { // need my own version if there are already readlocks
@@ -160,6 +162,30 @@ func (t *GoSqlTable) GetRecord(ix int, transaction int, forWrite bool) ([]driver
 		}
 	} else {
 		return t.getYoungestOrAlreadyRead(ix, transaction)
+	}
+}
+
+func (t *GoSqlTable) InsRecord(record []driver.Value, transaction int) error {
+	trarecord := Record{[]RecordVersion{RecordVersion{record, []int{}, transaction, 0, false, true}}, transaction}
+	t.data = append(t.data, trarecord)
+	return nil
+}
+
+func (t *GoSqlTable) DelRecord(ix int, transaction int) error {
+	_, err := t.GetRecord(ix, transaction, true)
+	if err != nil {
+		return err
+	}
+	trarecord := t.data[ix]
+	if len(trarecord.Versions) == 1 {
+		t.data[ix].Versions = []RecordVersion{}
+		t.data[ix].Writelock = -1
+	} else {
+		for _, version := range t.data.Versions {
+			if version.Writelock == transaction {
+				version.deleted = true
+			}
+		}
 	}
 }
 
