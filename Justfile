@@ -12,5 +12,5 @@ run:
     go build machine/*.go
     go build driver/*.go
     go build example.go
-    # ./example
+    ./example
 

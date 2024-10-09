@@ -153,7 +153,7 @@ func createAndFillTempTable(
 	table := data.Tables[query.from]
 	tableix := 0
 
-	it := table.NewIterator(0)
+	it := table.NewIterator(query.GetSnapShot())
 	for {
 		record, ok := it.Next()
 		if query.state == EndOfRows || !ok {

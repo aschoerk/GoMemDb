@@ -35,7 +35,7 @@ type Table interface {
 	Name() string
 	Columns() []GoSqlColumn
 	Data() *[][]Value
-	NewIterator(transaction int64) TableIterator
+	NewIterator(SnapShot *SnapShot) TableIterator
 	FindColumn(name string) (int, error)
 	Insert(recordValues []Value, transaction int64) int64
 	Update(recordId int64, recordValues []Value, transaction int64)
@@ -59,9 +59,10 @@ type VersionedRecord struct {
 }
 
 type GoSqlTableIterator struct {
-	table *GoSqlTable
-	xid   int64
-	ix    int
+	SnapShot *SnapShot
+	table    *GoSqlTable
+	xid      int64
+	ix       int
 }
 
 type TempTableIterator struct {
@@ -70,6 +71,7 @@ type TempTableIterator struct {
 }
 
 func (it *TempTableIterator) Next() (Record, bool) {
+	// ignore snapshot, just check if xids match
 	if len(it.table.Tempdata) < it.ix {
 		it.ix++
 		return Record{-1, it.table.Tempdata[it.ix-1]}, true
@@ -124,19 +126,16 @@ func NewTempTable(name string, columns []GoSqlColumn) Table {
 func NewTable(name string, columns []GoSqlColumn) *GoSqlTable {
 	res := &GoSqlTable{BaseTable{name, columns}, make(map[string]int64), atomic.Int64{}, []VersionedRecord{}, []TableIterator{}, sync.Mutex{}}
 	res.NextRecordId.Store(1)
-	tablesMu.Lock()
-	defer tablesMu.Unlock()
-	Tables[name] = res
 	return res
 }
 
-func (t *TempTable) NewIterator(transaction int64) TableIterator {
+func (t *TempTable) NewIterator(snapShot *SnapShot) TableIterator {
 	res := TempTableIterator{t, 0}
 	return &res
 }
 
-func (t *GoSqlTable) NewIterator(transaction int64) TableIterator {
-	res := GoSqlTableIterator{t, transaction, 0}
+func (t *GoSqlTable) NewIterator(snapShot *SnapShot) TableIterator {
+	res := GoSqlTableIterator{snapShot, t, snapShot.xid, 0}
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.iterators = append(t.iterators, &res)
@@ -144,11 +143,38 @@ func (t *GoSqlTable) NewIterator(transaction int64) TableIterator {
 }
 
 func (ti *GoSqlTableIterator) Next() (Record, bool) {
-	if ti.ix < len(ti.table.data) {
-		record := ti.table.data[ti.ix]
-		ti.ix++
-		actVersion := &record.Versions[len(record.Versions)-1]
-		return Record{record.id, actVersion.Data}, true
+	// select versions against snapShot
+	for {
+		if ti.ix < len(ti.table.data) {
+			record := ti.table.data[ti.ix]
+			ti.ix++
+			var actVersion *RecordVersion
+			var tratimestamp int64
+			changedInThisTransaction := false
+			for _, version := range record.Versions {
+				if version.xmin == ti.SnapShot.xid || changedInThisTransaction {
+					// changed in this transaction
+					actVersion = &version
+					changedInThisTransaction = true
+				} else {
+					if !slices.Contains(ti.SnapShot.runningXids, version.xmin) {
+						t, err := GetTransaction(version.xmin)
+						if err != nil {
+							panic(err)
+						}
+						if tratimestamp == 0 || tratimestamp < t.Ended {
+							tratimestamp = t.Ended
+							actVersion = &version
+						}
+					}
+				}
+			}
+			if actVersion != nil {
+				return Record{record.id, actVersion.Data}, true
+			} // else record is not visible in current snapshot
+		} else {
+			break // no more records there
+		}
 	}
 	ti.table.mu.Lock()
 	defer ti.table.mu.Unlock()
