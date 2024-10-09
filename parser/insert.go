@@ -19,7 +19,7 @@ type GoSqlInsertRequest struct {
 
 func NewInsertRequest(tableName string, columns []string, values [][]*GoSqlTerm) *GoSqlInsertRequest {
 	return &GoSqlInsertRequest{
-		GoSqlStatementBase{Parsed},
+		GoSqlStatementBase{Parsed, nil, nil},
 		tableName,
 		columns,
 		values,

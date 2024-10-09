@@ -152,7 +152,19 @@ func (ti *GoSqlTableIterator) Next() (Record, bool) {
 			var tratimestamp int64
 			changedInThisTransaction := false
 			for _, version := range record.Versions {
-				if version.xmin == ti.SnapShot.xid || changedInThisTransaction {
+				if version.xmin > ti.SnapShot.xid { // don't respect changes of transactions started later
+					continue
+				}
+				if changedInThisTransaction { // have already a record out of this transaction seen, so only regard version as such
+					if version.xmin == ti.SnapShot.xid {
+						if actVersion.xmax != ti.SnapShot.xid {
+							panic("found younger record, but this was changed in another transaction")
+						}
+						actVersion = &version // assume this to be a younger version
+					}
+					continue
+				}
+				if version.xmin == ti.SnapShot.xid {
 					// changed in this transaction
 					actVersion = &version
 					changedInThisTransaction = true

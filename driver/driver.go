@@ -33,7 +33,7 @@ func (c *GoSqlConn) Begin() (driver.Tx, error) {
 			return nil, fmt.Errorf("Transaction is already started on connection %d", c.data.Number)
 		}
 	}
-	c.data.Transaction = data.InitTransaction()
+	c.data.Transaction = data.InitTransaction(c.data.DefaultIsolationLevel)
 	return c.data.Transaction, nil
 }
 
@@ -69,8 +69,10 @@ func (c *GoSqlConn) Prepare(query string) (driver.Stmt, error) {
 }
 
 func (c *GoSqlConn) Close() error {
-	if c.data.Transaction.State == data.STARTED || c.data.Transaction.State == data.ROLLBACKONLY {
-		return data.EndTransaction(c.data.Transaction, data.ROLLEDBACK)
+	if c.data.Transaction != nil {
+		if c.data.Transaction.State == data.STARTED || c.data.Transaction.State == data.ROLLBACKONLY {
+			return data.EndTransaction(c.data.Transaction, data.ROLLEDBACK)
+		}
 	}
 	return nil
 }

@@ -101,7 +101,7 @@ func (r *GoSqlUpdateRequest) Exec(args []Value) (Result, error) {
 	results := make([]Value, len(r.columnixs))
 
 	affectedRows := 0
-	it := r.table.NewIterator(0)
+	it := r.table.NewIterator(r.GetSnapShot())
 	for {
 		record, ok := it.Next()
 		if !ok {
@@ -160,7 +160,7 @@ func (r *GoSqlDeleteRequest) Exec(args []Value) (Result, error) {
 	}
 	affectedRows := 0
 	todelete := []int64{}
-	it := table.NewIterator(0)
+	it := table.NewIterator(r.GetSnapShot())
 	for {
 		record, ok := it.Next()
 		if !ok {

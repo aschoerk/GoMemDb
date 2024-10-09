@@ -46,11 +46,17 @@ type TransactionManager struct {
 	mu               sync.RWMutex
 }
 
-var transactionManager = TransactionManager{
-	atomic.Int64{},
-	atomic.Int64{},
-	make(map[int64]*Transaction),
-	sync.RWMutex{},
+var transactionManager = NewTransactionManager()
+
+func NewTransactionManager() *TransactionManager {
+	res := TransactionManager{
+		atomic.Int64{},
+		atomic.Int64{},
+		make(map[int64]*Transaction),
+		sync.RWMutex{},
+	}
+	res.nextXid.Add(1)
+	return &res
 }
 
 func InitTransaction(isolationLevel TransactionIsolationLevel) *Transaction {
@@ -119,6 +125,7 @@ func EndTransaction(transaction *Transaction, newState TransactionState) error {
 						return fmt.Errorf("Expected not found transaction %d to be behind currently executed", actXid)
 					} else {
 						transactionManager.lowestRunningXid.CompareAndSwap(transaction.Xid, NO_TRANSACTION)
+						break
 					}
 				} else {
 					if tra.State == STARTED || tra.State == ROLLBACKONLY {
@@ -146,6 +153,14 @@ func (t *Transaction) Rollback() error {
 	return EndTransaction(t, ROLLEDBACK)
 }
 
+func (t *Transaction) SetRollbackOnly() error {
+	if t.State != STARTED && t.State != ROLLBACKONLY {
+		return fmt.Errorf("expected state of transaction %d to be started or rollbackonly", t.Xid)
+	}
+	t.State = ROLLBACKONLY
+	return nil
+}
+
 func GetTransaction(xid int64) (*Transaction, error) {
 	transactionManager.mu.RLock()
 	defer transactionManager.mu.RUnlock()
@@ -170,7 +185,7 @@ func GetSnapShot(currentXid int64) (*SnapShot, error) {
 	xmin := transactionManager.lowestRunningXid.Load()
 	xmax := transactionManager.nextXid.Load()
 	runningXids := []int64{}
-	for i := xmin; i < xmax; i++ {
+	for i := xmin; i < currentXid; i++ {
 		tra, ok := transactionManager.transactions[i]
 		if !ok {
 			return nil, fmt.Errorf("expected all data of transactions between xmin %d to xmax %d to exists, not found: %d", xmin, xmax, i)
@@ -182,4 +197,20 @@ func GetSnapShot(currentXid int64) (*SnapShot, error) {
 		}
 	}
 	return &SnapShot{currentXid, xmin, xmax, runningXids}, nil
+}
+
+func (s *SnapShot) Xid() int64 {
+	return s.xid
+}
+
+func (s *SnapShot) Xmin() int64 {
+	return s.xmin
+}
+
+func (s *SnapShot) Xmax() int64 {
+	return s.xmax
+}
+
+func (s *SnapShot) RunningIds() []int64 {
+	return s.runningXids
 }
