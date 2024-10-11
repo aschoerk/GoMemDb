@@ -31,6 +31,7 @@ type Transaction struct {
 	SnapShot       *SnapShot
 	State          TransactionState
 	IsolationLevel TransactionIsolationLevel
+	Conn           *GoSqlConnData
 }
 
 type SnapShot struct {

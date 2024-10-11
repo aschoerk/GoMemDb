@@ -19,7 +19,7 @@ type GoSqlDriver struct {
 }
 
 type GoSqlConn struct {
-	data data.GoSqlConnData
+	Data data.GoSqlConnData
 }
 
 func (d *GoSqlDriver) Open(s string) (driver.Conn, error) {
@@ -27,34 +27,39 @@ func (d *GoSqlDriver) Open(s string) (driver.Conn, error) {
 }
 
 func (c *GoSqlConn) Begin() (driver.Tx, error) {
-	c.data.DoAutoCommit = false
-	if c.data.Transaction != nil {
-		if c.data.Transaction.State == data.STARTED || c.data.Transaction.State == data.ROLLBACKONLY {
-			return nil, fmt.Errorf("Transaction is already started on connection %d", c.data.Number)
+	c.Data.DoAutoCommit = false
+	if c.Data.Transaction != nil {
+		if c.Data.Transaction.State == data.STARTED || c.Data.Transaction.State == data.ROLLBACKONLY {
+			return nil, fmt.Errorf("Transaction is already started on connection %d", c.Data.Number)
 		}
 	}
-	c.data.Transaction = data.InitTransaction(c.data.DefaultIsolationLevel)
-	return c.data.Transaction, nil
+	data.InitTransaction(&c.Data)
+	return c.Data.Transaction, nil
 }
 
 func (c *GoSqlConn) Prepare(query string) (driver.Stmt, error) {
 
 	parseResult, res := parser.Parse(query)
 	stmt := parseResult.(data.StatementInterface)
-	stmt.BaseData().Conn = &c.data
+	stmt.BaseData().Conn = &c.Data
 	fmt.Printf("lval: %s, res: %d", reflect.TypeOf(parseResult), res)
 	return parseResult, nil
 }
 
 func (c *GoSqlConn) Close() error {
-	if c.data.Transaction != nil {
-		if c.data.Transaction.State == data.STARTED || c.data.Transaction.State == data.ROLLBACKONLY {
-			return data.EndTransaction(c.data.Transaction, data.ROLLEDBACK)
+	if c.Data.Transaction != nil {
+		if c.Data.Transaction.State == data.STARTED || c.Data.Transaction.State == data.ROLLBACKONLY {
+			return data.EndTransaction(&c.Data, data.ROLLEDBACK)
 		}
 	}
 	return nil
 }
 
+func NewDriver() *GoSqlDriver {
+
+	return &GoSqlDriver{atomic.Int64{}, data.COMMITTED_READ}
+}
+
 func init() {
-	sql.Register("GoSql", &GoSqlDriver{atomic.Int64{}, data.COMMITTED_READ})
+	sql.Register("GoSql", NewDriver())
 }

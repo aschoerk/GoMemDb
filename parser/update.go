@@ -9,7 +9,7 @@ import (
 )
 
 type GoSqlUpdateRequest struct {
-	data.StatementBaseData
+	data.BaseStatement
 	tableName    string
 	updates      []GoSqlUpdateSpec
 	where        *GoSqlTerm
@@ -21,14 +21,15 @@ type GoSqlUpdateRequest struct {
 
 func NewUpdateRequest(tableName string, updates []GoSqlUpdateSpec, where *GoSqlTerm) *GoSqlUpdateRequest {
 	return &GoSqlUpdateRequest{
-		data.StatementBaseData{},
+		data.BaseStatement{
+			data.StatementBaseData{}},
 		tableName, updates, where,
 		nil, nil, nil, nil,
 	}
 }
 
 type GoSqlDeleteRequest struct {
-	data.StatementBaseData
+	data.BaseStatement
 	from  string
 	where *GoSqlTerm
 }
@@ -101,9 +102,12 @@ func (r *GoSqlUpdateRequest) Exec(args []Value) (Result, error) {
 	results := make([]Value, len(r.columnixs))
 
 	affectedRows := 0
-	it := r.table.NewIterator(r.Conn, r.SnapShot, true)
+	it := r.table.NewIterator(r.BaseData(), true)
 	for {
-		tuple, ok := it.Next()
+		tuple, ok, err := it.Next()
+		if err != nil {
+			return nil, err
+		}
 		if !ok {
 			break
 		}
@@ -160,9 +164,12 @@ func (r *GoSqlDeleteRequest) Exec(args []Value) (Result, error) {
 	}
 	affectedRows := 0
 	todelete := []int64{}
-	it := table.NewIterator(r.Conn, r.SnapShot, false)
+	it := table.NewIterator(r.BaseData(), true)
 	for {
-		tuple, ok := it.Next()
+		tuple, ok, err := it.Next()
+		if err != nil {
+			return nil, err
+		}
 		if !ok {
 			break
 		}

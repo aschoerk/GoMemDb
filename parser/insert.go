@@ -41,7 +41,6 @@ func (r *GoSqlInsertRequest) NumInput() int {
 }
 
 func (r *GoSqlInsertRequest) Exec(args []Value) (Result, error) {
-
 	table, exists := Tables[r.tableName]
 	if !exists {
 		return nil, fmt.Errorf("Unknown Table %s", r.tableName)
@@ -107,6 +106,7 @@ func (r *GoSqlInsertRequest) Exec(args []Value) (Result, error) {
 			r.State = Executing
 		}
 		if r.State == Executing {
+			EndStatement(r.BaseData())
 			return GoSqlResult{lastInsertedId, rowsAffected}, nil
 		}
 		return nil, fmt.Errorf("Invalid State %d for insert statement execute", r.State)

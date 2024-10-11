@@ -157,7 +157,7 @@ dml_statement:
             { $$ = $1 }
 
 delete: DELETE FROM from_spec opt_where
-    { $$ = &GoSqlDeleteRequest{StatementBaseData{},$3, $4}}            
+    { $$ = &GoSqlDeleteRequest{NewStatementBaseData(),$3, $4}}            
 
 update: UPDATE IDENTIFIER SET update_specs opt_where
     { $$ = NewUpdateRequest($2, $4, $5) }

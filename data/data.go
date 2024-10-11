@@ -28,14 +28,14 @@ type GoSqlColumn struct {
 }
 
 type TableIterator interface {
-	Next() (Tuple, bool)
+	Next() (Tuple, bool, error)
 }
 
 type Table interface {
 	Name() string
 	Columns() []GoSqlColumn
 	Data() *[][]Value
-	NewIterator(conn *GoSqlConnData, SnapShot *SnapShot, forChange bool) TableIterator
+	NewIterator(baseData *StatementBaseData, forChange bool) TableIterator
 	FindColumn(name string) (int, error)
 	Insert(recordValues []Value, conn *GoSqlConnData) int64
 	Update(recordId int64, recordValues []Value, conn *GoSqlConnData)
@@ -72,13 +72,13 @@ type TempTableIterator struct {
 	ix    int
 }
 
-func (it *TempTableIterator) Next() (Tuple, bool) {
+func (it *TempTableIterator) Next() (Tuple, bool, error) {
 	// ignore snapshot, just check if xids match
 	if len(it.table.Tempdata) < it.ix {
 		it.ix++
-		return Tuple{-1, it.table.Tempdata[it.ix-1]}, true
+		return Tuple{-1, it.table.Tempdata[it.ix-1]}, true, nil
 	} else {
-		return NULL_TUPLE, false
+		return NULL_TUPLE, false, nil
 	}
 }
 
@@ -131,7 +131,7 @@ func NewTable(name string, columns []GoSqlColumn) *GoSqlTable {
 	return res
 }
 
-func (t *TempTable) NewIterator(conn *GoSqlConnData, snapShot *SnapShot, forChange bool) TableIterator {
+func (t *TempTable) NewIterator(baseData *StatementBaseData, forChange bool) TableIterator {
 	if forChange {
 		panic("misuse of Temptables")
 	}
@@ -139,18 +139,29 @@ func (t *TempTable) NewIterator(conn *GoSqlConnData, snapShot *SnapShot, forChan
 	return &res
 }
 
-func (t *GoSqlTable) NewIterator(conn *GoSqlConnData, snapShot *SnapShot, forChange bool) TableIterator {
-	if forChange && !conn.Transaction.IsStarted() {
-		startTransactionInternal(conn.Transaction)
+func (t *GoSqlTable) NewIterator(baseData *StatementBaseData, forChange bool) TableIterator {
+	if forChange {
+		if baseData.Conn.Transaction == nil || !baseData.Conn.Transaction.IsStarted() {
+			InitTransaction(baseData.Conn)
+			startTransactionInternal(baseData.Conn.Transaction)
+		}
 	}
-	res := GoSqlTableIterator{conn.Transaction, snapShot, t, 0, forChange}
+	var s *SnapShot
+	tra := baseData.Conn.Transaction
+	if tra == nil || tra.IsolationLevel == COMMITTED_READ {
+		s = GetSnapShot()
+		baseData.SnapShot = s // not yet clear, if the snapshot is necessary outside of Iterator
+	} else {
+		s = tra.SnapShot
+	}
+	res := GoSqlTableIterator{baseData.Conn.Transaction, s, t, 0, forChange}
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.iterators = append(t.iterators, &res)
 	return &res
 }
 
-func (ti *GoSqlTableIterator) Next() (Tuple, bool) {
+func (ti *GoSqlTableIterator) Next() (Tuple, bool, error) {
 	// select versions against snapShot
 	for {
 		if ti.ix < len(ti.table.data) {
@@ -161,7 +172,9 @@ func (ti *GoSqlTableIterator) Next() (Tuple, bool) {
 			changedInThisTransaction := false
 			for _, version := range tuple.Versions {
 				if version.xmin >= ti.SnapShot.xmax { // don't respect changes of transactions started later
-					continue
+					if ti.forChange {
+						return NULL_TUPLE, false, fmt.Errorf("Serialization Error, tuple %d changed after of snapshot", tuple.id)
+					}
 				}
 				if changedInThisTransaction { // have already a tuple out of this transaction seen, so only regard version as such
 					if version.xmin == ti.Transaction.Xid {
@@ -190,7 +203,7 @@ func (ti *GoSqlTableIterator) Next() (Tuple, bool) {
 				}
 			}
 			if actVersion != nil {
-				return Tuple{tuple.id, actVersion.Data}, true
+				return Tuple{tuple.id, actVersion.Data}, true, nil
 			} // else tuple is not visible in current snapshot
 		} else {
 			break // no more records there
@@ -201,7 +214,7 @@ func (ti *GoSqlTableIterator) Next() (Tuple, bool) {
 	ti.table.iterators = slices.DeleteFunc(ti.table.iterators, func(i TableIterator) bool {
 		return i.(*GoSqlTableIterator) == ti
 	})
-	return NULL_TUPLE, false
+	return NULL_TUPLE, false, nil
 }
 
 func (t BaseTable) FindColumn(name string) (int, error) {
@@ -227,9 +240,7 @@ func (t *GoSqlTable) Increment(columnName string) int64 {
 }
 
 func (t *GoSqlTable) Insert(recordValues []Value, conn *GoSqlConnData) int64 {
-	if conn.Transaction == nil || !conn.Transaction.IsStarted() {
-		StartTransaction(conn)
-	}
+	StartTransaction(conn)
 	recordVersion := TupleVersion{recordValues, conn.Transaction.Xid, 0}
 	id := t.NextTupleId.Load()
 	tuple := VersionedTuple{id, []TupleVersion{recordVersion}, conn.Transaction.Xid}

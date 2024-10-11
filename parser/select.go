@@ -153,9 +153,12 @@ func createAndFillTempTable(
 	table := data.Tables[query.from]
 	tableix := 0
 
-	it := table.NewIterator(query.Conn, query.SnapShot, false)
+	it := table.NewIterator(query.BaseData(), false)
 	for {
-		tuple, ok := it.Next()
+		tuple, ok, err := it.Next()
+		if err != nil {
+			return "", err
+		}
 		if query.State == data.EndOfRows || !ok {
 			query.State = data.EndOfRows
 			break

@@ -28,29 +28,25 @@ func NewTransactionManager() *transactionManagerType {
 	return &res
 }
 
+// called during any change after transaction begin (or after last commit/rollback in case of autocommit)
 func StartTransaction(c *GoSqlConnData) error {
-	if c.Transaction == nil {
-		c.Transaction = InitTransaction(c.DefaultIsolationLevel)
-	}
-	if c.DoAutoCommit {
-		if c.Transaction.State == STARTED || c.Transaction.State == ROLLBACKONLY {
-			return fmt.Errorf("Invalid Transaction state during autocommit of connection %d", c.Number)
+	if c.Transaction != nil {
+		if c.Transaction.IsStarted() {
+			return nil
 		}
-	} else if c.Transaction.State == ROLLEDBACK || c.Transaction.State == COMMITTED {
-		return fmt.Errorf("Unable to prepare on connection %d without Transaction", c.Number)
 	}
-	if c.Transaction.State != STARTED && c.Transaction.State != ROLLBACKONLY {
-		t, err := startTransactionInternal(c.Transaction)
-		if err != nil {
-			return err
-		}
+	InitTransaction(c)
+	t, err := startTransactionInternal(c.Transaction)
+	if err != nil {
+		return err
+	} else {
 		c.Transaction = t
 	}
 	return nil
 }
 
-func InitTransaction(isolationLevel TransactionIsolationLevel) *Transaction {
-	return &Transaction{NO_TRANSACTION, 0, 0, 0, nil, INITED, isolationLevel}
+func InitTransaction(conn *GoSqlConnData) {
+	conn.Transaction = &Transaction{NO_TRANSACTION, 0, 0, 0, nil, INITED, conn.DefaultIsolationLevel, conn}
 }
 
 func (t *Transaction) IsStarted() bool {
@@ -62,7 +58,7 @@ func startTransactionInternal(t *Transaction) (*Transaction, error) {
 		return nil, fmt.Errorf("Trying to restart transaction %d", t.Xid)
 	}
 	if t.State == ROLLEDBACK || t.State == COMMITTED {
-		t = &Transaction{NO_TRANSACTION, 0, 0, 0, nil, INITED, t.IsolationLevel}
+		t = &Transaction{NO_TRANSACTION, 0, 0, 0, nil, INITED, t.IsolationLevel, t.Conn}
 	}
 	var xid int64
 	for {
@@ -77,7 +73,7 @@ func startTransactionInternal(t *Transaction) (*Transaction, error) {
 	t.Xid = xid
 	t.Started = time.Now().UnixNano()
 	t.State = STARTED
-	if t.IsolationLevel == REPEATABLE_READ {
+	if t.IsolationLevel == REPEATABLE_READ || t.IsolationLevel == SERIALIZABLE {
 		t.SnapShot = GetSnapShot()
 	}
 	transactionManager.mu.Lock()
@@ -86,7 +82,20 @@ func startTransactionInternal(t *Transaction) (*Transaction, error) {
 	return t, nil
 }
 
-func EndTransaction(transaction *Transaction, newState TransactionState) error {
+func EndStatement(baseData *StatementBaseData) error {
+	transaction := baseData.Conn.Transaction
+	if transaction == nil || transaction.IsolationLevel == COMMITTED_READ {
+		baseData.SnapShot = nil
+	}
+	if transaction != nil && baseData.Conn.DoAutoCommit {
+		return EndTransaction(baseData.Conn, COMMITTED)
+	} else {
+		return nil
+	}
+}
+
+func EndTransaction(conn *GoSqlConnData, newState TransactionState) error {
+	transaction := conn.Transaction
 	if transaction == nil {
 		return errors.New("EndTransaction called with nil transaction")
 	}
@@ -128,6 +137,7 @@ func EndTransaction(transaction *Transaction, newState TransactionState) error {
 			return fmt.Errorf("Stopping of transaction %d done in more than one thread", transaction.Xid)
 		}
 	}
+	conn.Transaction = nil
 	if rollbackInsteadOfCommit {
 		return fmt.Errorf("Rolled back transaction because of rollback only")
 	} else {
@@ -136,11 +146,11 @@ func EndTransaction(transaction *Transaction, newState TransactionState) error {
 }
 
 func (t *Transaction) Commit() error {
-	return EndTransaction(t, COMMITTED)
+	return EndTransaction(t.Conn, COMMITTED)
 }
 
 func (t *Transaction) Rollback() error {
-	return EndTransaction(t, ROLLEDBACK)
+	return EndTransaction(t.Conn, ROLLEDBACK)
 }
 
 func (t *Transaction) SetRollbackOnly() error {
@@ -168,13 +178,15 @@ func GetSnapShot() *SnapShot {
 	xmin := transactionManager.lowestRunningXid.Load()
 	xmax := transactionManager.nextXid.Load()
 	runningXids := []int64{}
-	for i := xmin; i < xmax; i++ {
-		tra, ok := transactionManager.transactions[i]
-		if !ok {
-			panic(fmt.Sprintf("expected all data of transactions between xmin %d to xmax %d to exists, not found: %d", xmin, xmax, i))
-		}
-		if tra.State == STARTED || tra.State == ROLLBACKONLY {
-			runningXids = append(runningXids, tra.Xid)
+	if xmin != NO_TRANSACTION {
+		for i := xmin; i < xmax; i++ {
+			tra, ok := transactionManager.transactions[i]
+			if !ok {
+				panic(fmt.Sprintf("expected all data of transactions between xmin %d to xmax %d to exists, not found: %d", xmin, xmax, i))
+			}
+			if tra.State == STARTED || tra.State == ROLLBACKONLY {
+				runningXids = append(runningXids, tra.Xid)
+			}
 		}
 	}
 	return &SnapShot{xmin, xmax, runningXids}
