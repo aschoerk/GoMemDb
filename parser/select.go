@@ -13,7 +13,7 @@ import (
 )
 
 type GoSqlSelectRequest struct {
-	GoSqlStatementBase
+	data.BaseStatement
 	allDistinct int
 	selectList  []SelectListEntry
 	from        string
@@ -72,7 +72,7 @@ func buildSelectList(table data.Table, r *GoSqlSelectRequest) ([]*GoSqlTerm, []S
 
 					}
 				} else {
-					return nil, nil, fmt.Errorf("Order by column: %s not found in record", name)
+					return nil, nil, fmt.Errorf("Order by column: %s not found in tuple", name)
 				}
 			}
 		}
@@ -83,9 +83,9 @@ func buildSelectList(table data.Table, r *GoSqlSelectRequest) ([]*GoSqlTerm, []S
 
 func (r *GoSqlSelectRequest) Query(args []Value) (Rows, error) {
 	table := data.Tables[r.from]
-	if r.state == Created {
-		r.state = Parsed
-		// determine source-record ()
+	if r.State == data.Created {
+		r.State = data.Parsed
+		// determine source-tuple ()
 		// create machines
 		termNum := len(r.selectList)
 
@@ -120,10 +120,10 @@ func (r *GoSqlSelectRequest) Query(args []Value) (Rows, error) {
 		if err != nil {
 			return nil, err
 		}
-		r.state = Executing
+		r.State = data.Executing
 		return &GoSqlRows{r, temptableName, &names, 0}, nil
 	} else {
-		return nil, fmt.Errorf("Invalid Statement state %d, expected 'Parsed'", r.state)
+		return nil, fmt.Errorf("Invalid Statement State %d, expected 'Parsed'", r.State)
 	}
 }
 
@@ -153,17 +153,17 @@ func createAndFillTempTable(
 	table := data.Tables[query.from]
 	tableix := 0
 
-	it := table.NewIterator(query.GetSnapShot())
+	it := table.NewIterator(query.Conn, query.SnapShot, false)
 	for {
-		record, ok := it.Next()
-		if query.state == EndOfRows || !ok {
-			query.state = EndOfRows
+		tuple, ok := it.Next()
+		if query.State == data.EndOfRows || !ok {
+			query.State = data.EndOfRows
 			break
 		}
 		if whereExecutionContext != -1 {
 			whereCheck := evaluationContexts[whereExecutionContext]
 
-			result, err := whereCheck.m.Execute(args, record.Data, nil)
+			result, err := whereCheck.m.Execute(args, tuple.Data, nil)
 			if err != nil {
 				return "", err
 			}
@@ -175,13 +175,13 @@ func createAndFillTempTable(
 				return "", errors.New("Expected boolean as result of evaluation of where")
 			}
 			if whereResult {
-				err := calcRecord(tempTable, args, evaluationContexts, record.Data, sizeSelectList)
+				err := calcTuple(tempTable, args, evaluationContexts, tuple.Data, sizeSelectList)
 				if err != nil {
 					return "", err
 				}
 			}
 		} else {
-			err := calcRecord(tempTable, args, evaluationContexts, record.Data, sizeSelectList)
+			err := calcTuple(tempTable, args, evaluationContexts, tuple.Data, sizeSelectList)
 			if err != nil {
 				return "", err
 			}
@@ -207,19 +207,19 @@ func createAndFillTempTable(
 	return name, nil
 }
 
-func calcRecord(tempTable data.Table, args []Value, evaluationContexts []*EvaluationContext, record []Value, sizeSelectList int) error {
-	destRecord := []Value{}
+func calcTuple(tempTable data.Table, args []Value, evaluationContexts []*EvaluationContext, tuple []Value, sizeSelectList int) error {
+	destTuple := []Value{}
 	for ix, execution := range evaluationContexts {
 		if ix < sizeSelectList {
-			res, err := execution.m.Execute(args, record, nil)
+			res, err := execution.m.Execute(args, tuple, nil)
 			if err != nil {
 				return err
 			} else {
-				destRecord = append(destRecord, res)
+				destTuple = append(destTuple, res)
 			}
 		}
 	}
-	*tempTable.Data() = append(*tempTable.Data(), destRecord)
+	*tempTable.Data() = append(*tempTable.Data(), destTuple)
 	return nil
 }
 
@@ -253,7 +253,7 @@ func (rows *GoSqlRows) Close() error {
 func (rows *GoSqlRows) Next(dest []Value) error {
 	table := data.Tables[rows.temptableName]
 	if len(*table.Data()) <= rows.tableix {
-		rows.query.state = EndOfRows
+		rows.query.State = data.EndOfRows
 		return io.EOF
 	}
 	destix := 0

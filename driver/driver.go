@@ -19,11 +19,11 @@ type GoSqlDriver struct {
 }
 
 type GoSqlConn struct {
-	data parser.GoSqlConnData
+	data data.GoSqlConnData
 }
 
 func (d *GoSqlDriver) Open(s string) (driver.Conn, error) {
-	return &GoSqlConn{parser.GoSqlConnData{d.connectionNumber.Add(1), nil, true, d.DefaultIsolationLevel}}, nil
+	return &GoSqlConn{data.GoSqlConnData{d.connectionNumber.Add(1), nil, true, d.DefaultIsolationLevel}}, nil
 }
 
 func (c *GoSqlConn) Begin() (driver.Tx, error) {
@@ -38,32 +38,10 @@ func (c *GoSqlConn) Begin() (driver.Tx, error) {
 }
 
 func (c *GoSqlConn) Prepare(query string) (driver.Stmt, error) {
-	if c.data.DoAutoCommit {
-		if c.data.Transaction.State == data.STARTED || c.data.Transaction.State == data.ROLLBACKONLY {
-			return nil, fmt.Errorf("Invalid Transaction state during autocommit of connection %d", c.data.Number)
-		}
-	} else if c.data.Transaction.State == data.ROLLEDBACK || c.data.Transaction.State == data.COMMITTED {
-		return nil, fmt.Errorf("Unable to prepare on connection %d statement %s without Transaction", c.data.Number, query)
-	}
-	if c.data.Transaction.State != data.STARTED && c.data.Transaction.State != data.ROLLBACKONLY {
-		t, err := data.StartTransaction(c.data.Transaction)
-		if err != nil {
-			return nil, err
-		}
-		c.data.Transaction = t
-	}
-	parseResult, res := parser.Parse(query)
-	stmt := parseResult.(*parser.GoSqlStatementBase)
-	stmt.Connection = &c.data
-	if c.data.Transaction.IsolationLevel == data.COMMITTED_READ {
-		s, err := data.GetSnapShot(c.data.Transaction.Xid)
-		if err != nil {
-			return nil, err
-		} else {
-			stmt.SnapShot = s
 
-		}
-	}
+	parseResult, res := parser.Parse(query)
+	stmt := parseResult.(data.StatementInterface)
+	stmt.BaseData().Conn = &c.data
 	fmt.Printf("lval: %s, res: %d", reflect.TypeOf(parseResult), res)
 	return parseResult, nil
 }

@@ -9,26 +9,26 @@ import (
 )
 
 type GoSqlUpdateRequest struct {
-	GoSqlStatementBase
+	data.StatementBaseData
 	tableName    string
 	updates      []GoSqlUpdateSpec
 	where        *GoSqlTerm
 	terms        []*GoSqlTerm
 	placeHolders []*GoSqlTerm // the terms identified as placeholders by parser
-	columnixs    []int        // index in record, where update should happen
+	columnixs    []int        // index in tuple, where update should happen
 	table        data.Table
 }
 
 func NewUpdateRequest(tableName string, updates []GoSqlUpdateSpec, where *GoSqlTerm) *GoSqlUpdateRequest {
 	return &GoSqlUpdateRequest{
-		GoSqlStatementBase{},
+		data.StatementBaseData{},
 		tableName, updates, where,
 		nil, nil, nil, nil,
 	}
 }
 
 type GoSqlDeleteRequest struct {
-	GoSqlStatementBase
+	data.StatementBaseData
 	from  string
 	where *GoSqlTerm
 }
@@ -42,7 +42,7 @@ func (r *GoSqlUpdateRequest) initStruct() error {
 		r.table = tmptable
 		r.terms = []*GoSqlTerm{}
 		r.placeHolders = []*GoSqlTerm{} // the terms identified as placeholders by parser
-		r.columnixs = []int{}           // index in record, where update should happen
+		r.columnixs = []int{}           // index in tuple, where update should happen
 		for _, u := range r.updates {
 			r.placeHolders = u.term.FindPlaceHolders(r.placeHolders)
 			r.terms = append(r.terms, u.term)
@@ -101,13 +101,13 @@ func (r *GoSqlUpdateRequest) Exec(args []Value) (Result, error) {
 	results := make([]Value, len(r.columnixs))
 
 	affectedRows := 0
-	it := r.table.NewIterator(r.GetSnapShot())
+	it := r.table.NewIterator(r.Conn, r.SnapShot, true)
 	for {
-		record, ok := it.Next()
+		tuple, ok := it.Next()
 		if !ok {
 			break
 		}
-		res, err := whereCommands[0].m.Execute(args, record.Data, nil)
+		res, err := whereCommands[0].m.Execute(args, tuple.Data, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -118,17 +118,17 @@ func (r *GoSqlUpdateRequest) Exec(args []Value) (Result, error) {
 		if whereResult {
 			affectedRows++
 			for ix, command := range commands {
-				result, err := command.m.Execute(args, record.Data, nil)
+				result, err := command.m.Execute(args, tuple.Data, nil)
 				if err != nil {
 					return nil, err
 				}
 				results[ix] = result
 			}
-			resultRecord := slices.Clone(record.Data)
+			resultTuple := slices.Clone(tuple.Data)
 			for ix, result := range results {
-				resultRecord[r.columnixs[ix]] = result
+				resultTuple[r.columnixs[ix]] = result
 			}
-			r.table.Update(record.Id, resultRecord, 0)
+			r.table.Update(tuple.Id, resultTuple, r.Conn)
 		}
 	}
 
@@ -160,13 +160,13 @@ func (r *GoSqlDeleteRequest) Exec(args []Value) (Result, error) {
 	}
 	affectedRows := 0
 	todelete := []int64{}
-	it := table.NewIterator(r.GetSnapShot())
+	it := table.NewIterator(r.Conn, r.SnapShot, false)
 	for {
-		record, ok := it.Next()
+		tuple, ok := it.Next()
 		if !ok {
 			break
 		}
-		res, err := whereCommands[0].m.Execute(args, record.Data, nil)
+		res, err := whereCommands[0].m.Execute(args, tuple.Data, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -175,12 +175,12 @@ func (r *GoSqlDeleteRequest) Exec(args []Value) (Result, error) {
 			return nil, fmt.Errorf("expected boolean expression as where term")
 		}
 		if whereResult {
-			todelete = append(todelete, record.Id)
+			todelete = append(todelete, tuple.Id)
 		}
 	}
 	slices.Reverse(todelete)
 	for _, id := range todelete {
-		table.Delete(id, 0)
+		table.Delete(id, r.Conn)
 		affectedRows++
 	}
 

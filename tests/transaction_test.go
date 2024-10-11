@@ -23,15 +23,13 @@ func TestTransactionsAndSnapShots(t *testing.T) {
 	assert.Equal(t, tra2.Xid, firstXid+1)
 	assert.NotZero(t, tra2.Started)
 	// check snapshots
-	snapshot1, err := data.GetSnapShot(firstXid)
+	snapshot1 := data.GetSnapShot()
 	assert.NoError(t, err)
-	assert.Equal(t, firstXid, snapshot1.Xid())
 	assert.Equal(t, firstXid, snapshot1.Xmin())
 	assert.Equal(t, firstXid+2, snapshot1.Xmax())
 	assert.Len(t, snapshot1.RunningIds(), 0) // no running transaction from before the current
-	snapshot2, err := data.GetSnapShot(tra2.Xid)
+	snapshot2 := data.GetSnapShot()
 	assert.NoError(t, err)
-	assert.Equal(t, firstXid+1, snapshot2.Xid())
 	assert.Equal(t, firstXid, snapshot2.Xmin())
 	assert.Equal(t, firstXid+2, snapshot2.Xmax())
 	assert.Len(t, snapshot2.RunningIds(), 1) // one other running transaction tra
@@ -39,9 +37,8 @@ func TestTransactionsAndSnapShots(t *testing.T) {
 	// try ending of tra
 	err = data.EndTransaction(tra, data.COMMITTED)
 	assert.NoError(t, err)
-	snapshot2, err = data.GetSnapShot(tra2.Xid)
+	snapshot2, err = data.GetSnapShot()
 	assert.NoError(t, err)
-	assert.Equal(t, tra2.Xid, snapshot2.Xid())
 	assert.Equal(t, tra2.Xid, snapshot2.Xmin())
 	assert.Equal(t, tra2.Xid+1, snapshot2.Xmax())
 	assert.Len(t, snapshot2.RunningIds(), 0) // no running transaction tra anymore
@@ -54,16 +51,12 @@ func TestTransactionsAndSnapShots(t *testing.T) {
 	assert.NotZero(t, tra.Ended)
 	assert.Greater(t, tra.Ended, tra.Started)
 	assert.Greater(t, tra.Ended, tra2.Started)
-	snapshot3, err := data.GetSnapShot(tra3.Xid)
-	assert.NoError(t, err)
-	assert.Equal(t, tra3.Xid, snapshot3.Xid())
+	snapshot3 := data.GetSnapShot()
 	assert.Equal(t, tra2.Xid, snapshot3.Xmin())
 	assert.Equal(t, tra3.Xid+1, snapshot3.Xmax())
 	assert.Len(t, snapshot3.RunningIds(), 1) // tra2 is running yet
 	assert.Equal(t, tra2.Xid, snapshot3.RunningIds()[0])
-	snapshot2, err = data.GetSnapShot(tra2.Xid)
-	assert.NoError(t, err)
-	assert.Equal(t, tra2.Xid, snapshot2.Xid())
+	snapshot2, err = data.GetSnapShot(
 	assert.Equal(t, tra2.Xid, snapshot2.Xmin())
 	assert.Equal(t, tra3.Xid+1, snapshot2.Xmax())
 	assert.Len(t, snapshot2.RunningIds(), 0) // no running transaction tra relevant for tra2 anymore
@@ -72,8 +65,7 @@ func TestTransactionsAndSnapShots(t *testing.T) {
 	tra5 := data.InitTransaction(data.COMMITTED_READ)
 	tra5, err = data.StartTransaction(tra5)
 	data.EndTransaction(tra3, data.ROLLEDBACK)
-	snapshot5, err := data.GetSnapShot(tra5.Xid)
-	assert.Equal(t, tra5.Xid, snapshot5.Xid())
+	snapshot5 := data.GetSnapShot()
 	assert.Equal(t, tra2.Xid, snapshot5.Xmin())
 	assert.Equal(t, tra5.Xid+1, snapshot5.Xmax())
 	assert.Len(t, snapshot5.RunningIds(), 2)
@@ -105,6 +97,6 @@ func TestCanSetRollbackOnlyAndCommitToError(t *testing.T) {
 	err = data.EndTransaction(tra2, data.ROLLEDBACK)
 	assert.NoError(t, err)
 	assert.Equal(t, data.ROLLEDBACK, tra.State)
-	_, err = data.GetSnapShot(tra2.Xid)
+	_, err = data.GetSnapShot()
 	assert.Error(t, err)
 }

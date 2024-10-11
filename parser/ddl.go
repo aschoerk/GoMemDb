@@ -9,19 +9,19 @@ import (
 )
 
 type GoSqlCreateTableRequest struct {
-	GoSqlStatementBase
+	data.BaseStatement
 	ifExists int
 	table    *GoSqlTable
 }
 
 type GoSqlCreateDatabaseRequest struct {
-	GoSqlStatementBase
+	data.BaseStatement
 	ifExists int
 	name     string
 }
 
 type GoSqlCreateSchemaRequest struct {
-	GoSqlStatementBase
+	data.BaseStatement
 	ifExists int
 	name     string
 }

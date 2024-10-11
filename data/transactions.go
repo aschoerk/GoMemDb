@@ -8,38 +8,7 @@ import (
 	"time"
 )
 
-type TransactionState int8
-
-const NO_TRANSACTION = int64(0)
-
-const (
-	INITED TransactionState = iota + 1
-	STARTED
-	ROLLBACKONLY
-	COMMITTED
-	ROLLEDBACK
-)
-
-type TransactionIsolationLevel int8
-
-const (
-	UNCOMMITTED_READ TransactionIsolationLevel = iota + 1
-	COMMITTED_READ
-	REPEATABLE_READ
-	SERIALIZABLE
-)
-
-type Transaction struct {
-	Xid            int64
-	Started        int64
-	Ended          int64
-	ChangeCount    int64
-	SnapShot       *SnapShot
-	State          TransactionState
-	IsolationLevel TransactionIsolationLevel
-}
-
-type TransactionManager struct {
+type transactionManagerType struct {
 	nextXid          atomic.Int64
 	lowestRunningXid atomic.Int64
 	transactions     map[int64]*Transaction
@@ -48,8 +17,8 @@ type TransactionManager struct {
 
 var transactionManager = NewTransactionManager()
 
-func NewTransactionManager() *TransactionManager {
-	res := TransactionManager{
+func NewTransactionManager() *transactionManagerType {
+	res := transactionManagerType{
 		atomic.Int64{},
 		atomic.Int64{},
 		make(map[int64]*Transaction),
@@ -59,11 +28,36 @@ func NewTransactionManager() *TransactionManager {
 	return &res
 }
 
+func StartTransaction(c *GoSqlConnData) error {
+	if c.Transaction == nil {
+		c.Transaction = InitTransaction(c.DefaultIsolationLevel)
+	}
+	if c.DoAutoCommit {
+		if c.Transaction.State == STARTED || c.Transaction.State == ROLLBACKONLY {
+			return fmt.Errorf("Invalid Transaction state during autocommit of connection %d", c.Number)
+		}
+	} else if c.Transaction.State == ROLLEDBACK || c.Transaction.State == COMMITTED {
+		return fmt.Errorf("Unable to prepare on connection %d without Transaction", c.Number)
+	}
+	if c.Transaction.State != STARTED && c.Transaction.State != ROLLBACKONLY {
+		t, err := startTransactionInternal(c.Transaction)
+		if err != nil {
+			return err
+		}
+		c.Transaction = t
+	}
+	return nil
+}
+
 func InitTransaction(isolationLevel TransactionIsolationLevel) *Transaction {
 	return &Transaction{NO_TRANSACTION, 0, 0, 0, nil, INITED, isolationLevel}
 }
 
-func StartTransaction(t *Transaction) (*Transaction, error) {
+func (t *Transaction) IsStarted() bool {
+	return t.State == STARTED || t.State == ROLLEDBACK
+}
+
+func startTransactionInternal(t *Transaction) (*Transaction, error) {
 	if t.State == STARTED || t.State == ROLLBACKONLY {
 		return nil, fmt.Errorf("Trying to restart transaction %d", t.Xid)
 	}
@@ -84,11 +78,7 @@ func StartTransaction(t *Transaction) (*Transaction, error) {
 	t.Started = time.Now().UnixNano()
 	t.State = STARTED
 	if t.IsolationLevel == REPEATABLE_READ {
-		s, err := GetSnapShot(t.Xid)
-		if err != nil {
-			return t, err
-		}
-		t.SnapShot = s
+		t.SnapShot = GetSnapShot()
 	}
 	transactionManager.mu.Lock()
 	defer transactionManager.mu.Unlock()
@@ -172,35 +162,22 @@ func GetTransaction(xid int64) (*Transaction, error) {
 	}
 }
 
-type SnapShot struct {
-	xid         int64
-	xmin        int64
-	xmax        int64
-	runningXids []int64
-}
-
-func GetSnapShot(currentXid int64) (*SnapShot, error) {
+func GetSnapShot() *SnapShot {
 	transactionManager.mu.RLock()
 	defer transactionManager.mu.RUnlock()
 	xmin := transactionManager.lowestRunningXid.Load()
 	xmax := transactionManager.nextXid.Load()
 	runningXids := []int64{}
-	for i := xmin; i < currentXid; i++ {
+	for i := xmin; i < xmax; i++ {
 		tra, ok := transactionManager.transactions[i]
 		if !ok {
-			return nil, fmt.Errorf("expected all data of transactions between xmin %d to xmax %d to exists, not found: %d", xmin, xmax, i)
+			panic(fmt.Sprintf("expected all data of transactions between xmin %d to xmax %d to exists, not found: %d", xmin, xmax, i))
 		}
 		if tra.State == STARTED || tra.State == ROLLBACKONLY {
-			if tra.Xid != currentXid {
-				runningXids = append(runningXids, tra.Xid)
-			}
+			runningXids = append(runningXids, tra.Xid)
 		}
 	}
-	return &SnapShot{currentXid, xmin, xmax, runningXids}, nil
-}
-
-func (s *SnapShot) Xid() int64 {
-	return s.xid
+	return &SnapShot{xmin, xmax, runningXids}
 }
 
 func (s *SnapShot) Xmin() int64 {

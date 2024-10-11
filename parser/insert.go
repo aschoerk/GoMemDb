@@ -6,20 +6,21 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/aschoerk/go-sql-mem/data"
 	. "github.com/aschoerk/go-sql-mem/data"
 )
 
 type GoSqlInsertRequest struct {
-	GoSqlStatementBase
+	data.BaseStatement
 	tableName          string
 	Columns            []string
 	values             [][]*GoSqlTerm
-	evaluationContexts [][]*EvaluationContext // valid in state Executing, must have the same length as Table has columns
+	evaluationContexts [][]*EvaluationContext // valid in State Executing, must have the same length as Table has columns
 }
 
 func NewInsertRequest(tableName string, columns []string, values [][]*GoSqlTerm) *GoSqlInsertRequest {
 	return &GoSqlInsertRequest{
-		GoSqlStatementBase{Parsed, nil, nil},
+		data.BaseStatement{data.StatementBaseData{nil, nil, data.Parsed}},
 		tableName,
 		columns,
 		values,
@@ -45,14 +46,14 @@ func (r *GoSqlInsertRequest) Exec(args []Value) (Result, error) {
 	if !exists {
 		return nil, fmt.Errorf("Unknown Table %s", r.tableName)
 	} else {
-		if r.state == Closed {
+		if r.State == Closed {
 			return nil, errors.New("Statement already closed")
 		}
 		placeHolderOffset := 0
 		insertContexts := [][]*EvaluationContext{}
 		var lastInsertedId int64 = -1
 		var rowsAffected int64 = 0
-		if r.state == Parsed {
+		if r.State == Parsed {
 			for _, insertvalues := range r.values {
 				evaluationContexts := make([]*EvaluationContext, len(table.Columns()))
 				evaluationResults, err := Terms2Commands(insertvalues, args, nil, &placeHolderOffset)
@@ -79,35 +80,35 @@ func (r *GoSqlInsertRequest) Exec(args []Value) (Result, error) {
 				insertContexts = append(insertContexts, evaluationContexts)
 			}
 			for _, insertContext := range insertContexts {
-				record := make([]Value, len(table.Columns()))
+				tuple := make([]Value, len(table.Columns()))
 
-				for colix, _ := range record {
+				for colix, _ := range tuple {
 					executionContext := insertContext[colix]
 					if executionContext != nil {
 						res, err := executionContext.m.Execute(args, []Value{}, nil)
 						if err != nil {
 							return nil, err
 						}
-						record[colix] = res
+						tuple[colix] = res
 					} else {
 						columnDef := table.Columns()[colix]
 						switch columnDef.Spec2 {
 						case PRIMARY_AUTOINCREMENT:
 							{
 								id := table.(*GoSqlTable).Increment(columnDef.Name)
-								record[colix] = id
+								tuple[colix] = id
 							}
 						}
 					}
 				}
-				lastInsertedId = table.(*GoSqlTable).Insert(record, 0)
+				lastInsertedId = table.(*GoSqlTable).Insert(tuple, r.Conn)
 				rowsAffected++
 			}
-			r.state = Executing
+			r.State = Executing
 		}
-		if r.state == Executing {
+		if r.State == Executing {
 			return GoSqlResult{lastInsertedId, rowsAffected}, nil
 		}
-		return nil, fmt.Errorf("Invalid state %d for insert statement execute", r.state)
+		return nil, fmt.Errorf("Invalid State %d for insert statement execute", r.State)
 	}
 }

@@ -49,7 +49,7 @@ func AddPushPlaceHolder(m *Machine, ix int) {
 func AddPushAttribute(m *Machine, ix int) {
 	m.AddCommand(func(m *Machine) error {
 		if ix < 0 || ix >= len(m.r) {
-			return errors.New(fmt.Sprintf("Invalid record ix: %d", ix))
+			return errors.New(fmt.Sprintf("Invalid tuple ix: %d", ix))
 		}
 		m.s.Push((m.r)[ix])
 		return nil
@@ -119,13 +119,13 @@ func ReturnInverseIfNotEqualZero(m *Machine) error {
 	return nil
 }
 
-func (m *Machine) Execute(placeHolders []Value, record []Value, record2 []Value) (Value, error) {
+func (m *Machine) Execute(placeHolders []Value, tuple []Value, record2 []Value) (Value, error) {
 	defer func() {
 		fmt.Println("\n**********************************************")
 	}()
 	m.s.Clear()
 	m.p = placeHolders
-	m.r = record
+	m.r = tuple
 	m.r2 = record2
 	m.ix = 0
 	fmt.Println("\n**********************************************")

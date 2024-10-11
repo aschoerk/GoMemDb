@@ -4,6 +4,9 @@ A project allowing me to use go in a not so simple environment. The idea is to i
 * creation of tempor
 * UPDATE/DELETE
 * Remote Access via Rest, plus database/sql/driver **** currently working on that 
+** need to change xid assignment to only at moment of changes
+** need to do locking using fields in Tuple, no extra Lockmanager-Lockstorage
+** need to keep track of changed records during transaction
 * Transactions plus MVCC plus Multiuser-Capability
 * Backing of Memory-Changes via persistent storage
 * AGGREGATE FUNCTIONS

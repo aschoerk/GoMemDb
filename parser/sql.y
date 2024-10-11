@@ -109,16 +109,16 @@ statement: ddl_statement
 
 ddl_statement:
         CREATE DATABASE if_exists_predicate IDENTIFIER 
-            { $$ = &GoSqlCreateDatabaseRequest{NewGoSqlStatementBase(), $3, $4} }
+            { $$ = &GoSqlCreateDatabaseRequest{NewStatementBaseData(), $3, $4} }
         | CREATE SCHEMA if_exists_predicate IDENTIFIER 
-            { $$ = &GoSqlCreateSchemaRequest{NewGoSqlStatementBase(), $3, $4} }
+            { $$ = &GoSqlCreateSchemaRequest{NewStatementBaseData(), $3, $4} }
         | create_table
             { $$ = $1 }
 
 
 create_table:
     CREATE TABLE if_exists_predicate IDENTIFIER '(' columns ')'
-        { $$ = &GoSqlCreateTableRequest {NewGoSqlStatementBase(),$3, NewTable($4, $6) } }
+        { $$ = &GoSqlCreateTableRequest {NewStatementBaseData(),$3, NewTable($4, $6) } }
 
 columns: column
        { $$ = []GoSqlColumn{$1}}
@@ -157,7 +157,7 @@ dml_statement:
             { $$ = $1 }
 
 delete: DELETE FROM from_spec opt_where
-    { $$ = &GoSqlDeleteRequest{GoSqlStatementBase{},$3, $4}}            
+    { $$ = &GoSqlDeleteRequest{StatementBaseData{},$3, $4}}            
 
 update: UPDATE IDENTIFIER SET update_specs opt_where
     { $$ = NewUpdateRequest($2, $4, $5) }
@@ -184,7 +184,7 @@ select: SELECT
         { setExtraState(yylex, HAVING)}
         opt_having
         opt_order_by
-  { $$ = &GoSqlSelectRequest { NewGoSqlStatementBase(), $3, $4, $7, $9, $11, $13, $14 }}
+  { $$ = &GoSqlSelectRequest { NewStatementBaseData(), $3, $4, $7, $9, $11, $13, $14 }}
 
 distinct_all: 
    { $$ = ALL }
