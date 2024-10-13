@@ -46,7 +46,7 @@ func StartTransaction(c *GoSqlConnData) error {
 }
 
 func InitTransaction(conn *GoSqlConnData) {
-	conn.Transaction = &Transaction{NO_TRANSACTION, 0, 0, 0, nil, INITED, conn.DefaultIsolationLevel, conn}
+	conn.Transaction = &Transaction{NO_TRANSACTION, 0, 0, 0, 0, nil, INITED, conn.DefaultIsolationLevel, conn}
 }
 
 func (t *Transaction) IsStarted() bool {
@@ -58,7 +58,7 @@ func startTransactionInternal(t *Transaction) (*Transaction, error) {
 		return nil, fmt.Errorf("Trying to restart transaction %d", t.Xid)
 	}
 	if t.State == ROLLEDBACK || t.State == COMMITTED {
-		t = &Transaction{NO_TRANSACTION, 0, 0, 0, nil, INITED, t.IsolationLevel, t.Conn}
+		t = &Transaction{NO_TRANSACTION, 0, 0, 0, 0, nil, INITED, t.IsolationLevel, t.Conn}
 	}
 	var xid int64
 	for {
@@ -74,7 +74,7 @@ func startTransactionInternal(t *Transaction) (*Transaction, error) {
 	t.Started = time.Now().UnixNano()
 	t.State = STARTED
 	if t.IsolationLevel == REPEATABLE_READ || t.IsolationLevel == SERIALIZABLE {
-		t.SnapShot = GetSnapShot()
+		t.SnapShot = GetSnapShot(t)
 	}
 	transactionManager.mu.Lock()
 	defer transactionManager.mu.Unlock()
@@ -90,6 +90,9 @@ func EndStatement(baseData *StatementBaseData) error {
 	if transaction != nil && baseData.Conn.DoAutoCommit {
 		return EndTransaction(baseData.Conn, COMMITTED)
 	} else {
+		if transaction != nil {
+			transaction.Cid++
+		}
 		return nil
 	}
 }
@@ -172,12 +175,16 @@ func GetTransaction(xid int64) (*Transaction, error) {
 	}
 }
 
-func GetSnapShot() *SnapShot {
+func GetSnapShot(transaction *Transaction) *SnapShot {
 	transactionManager.mu.RLock()
 	defer transactionManager.mu.RUnlock()
 	xmin := transactionManager.lowestRunningXid.Load()
 	xmax := transactionManager.nextXid.Load()
 	runningXids := []int64{}
+	cid := int32(0)
+	if transaction != nil {
+		cid = transaction.Cid
+	}
 	if xmin != NO_TRANSACTION {
 		for i := xmin; i < xmax; i++ {
 			tra, ok := transactionManager.transactions[i]
@@ -189,7 +196,7 @@ func GetSnapShot() *SnapShot {
 			}
 		}
 	}
-	return &SnapShot{xmin, xmax, runningXids}
+	return &SnapShot{xmin, xmax, cid, runningXids}
 }
 
 func (s *SnapShot) Xmin() int64 {

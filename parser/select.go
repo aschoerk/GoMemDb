@@ -153,11 +153,30 @@ func createAndFillTempTable(
 	name := createTempTable(evaluationContexts, names, sizeSelectList)
 	tempTable := data.Tables[name]
 	table := data.Tables[query.from]
-	tableix := 0
 
 	it := table.NewIterator(query.BaseData(), forUpdate == FOR, true)
 	for {
-		tuple, ok, err := it.Next()
+		tuple, ok, err := it.Next(func(data []Value) (bool, error) {
+			if whereExecutionContext != -1 {
+				whereCheck := evaluationContexts[whereExecutionContext]
+
+				result, err := whereCheck.m.Execute(args, data, nil)
+				if err != nil {
+					return false, err
+				}
+				if result == nil {
+					return false, errors.New("Expected not nil as evaluation of where")
+				}
+				whereResult, ok := result.(bool)
+				if ok {
+					return whereResult, nil
+				} else {
+					return false, errors.New("Expected bool result from where")
+				}
+			} else {
+				return true, nil
+			}
+		})
 		if err != nil {
 			return "", err
 		}
@@ -165,33 +184,10 @@ func createAndFillTempTable(
 			query.State = data.EndOfRows
 			break
 		}
-		if whereExecutionContext != -1 {
-			whereCheck := evaluationContexts[whereExecutionContext]
-
-			result, err := whereCheck.m.Execute(args, tuple.Data, nil)
-			if err != nil {
-				return "", err
-			}
-			if result == nil {
-				return "", errors.New("Expected not nil as evaluation of where")
-			}
-			whereResult, ok := result.(bool)
-			if !ok {
-				return "", errors.New("Expected boolean as result of evaluation of where")
-			}
-			if whereResult {
-				err := calcTuple(tempTable, args, evaluationContexts, tuple.Data, sizeSelectList)
-				if err != nil {
-					return "", err
-				}
-			}
-		} else {
-			err := calcTuple(tempTable, args, evaluationContexts, tuple.Data, sizeSelectList)
-			if err != nil {
-				return "", err
-			}
+		err = calcTuple(tempTable, args, evaluationContexts, tuple.Data, sizeSelectList)
+		if err != nil {
+			return "", err
 		}
-		tableix++
 	}
 	if query.orderBy != nil {
 		e, err := OrderBy2Commands(&query.orderBy, tempTable)

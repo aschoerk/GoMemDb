@@ -28,7 +28,7 @@ type GoSqlColumn struct {
 }
 
 type TableIterator interface {
-	Next() (Tuple, bool, error)
+	Next(func([]Value) (bool, error)) (Tuple, bool, error)
 }
 
 type Table interface {
@@ -55,13 +55,13 @@ type TupleVersion struct {
 	Data  []driver.Value
 	xmin  int64
 	xmax  int64
-	flags int64
+	flags int32
+	cid   int32
 }
 
 type VersionedTuple struct {
-	id                 int64
-	Versions           []TupleVersion
-	LockingTransaction int64
+	id       int64
+	Versions []TupleVersion
 }
 
 type GoSqlTableIterator struct {
@@ -78,13 +78,22 @@ type TempTableIterator struct {
 	ix    int
 }
 
-func (it *TempTableIterator) Next() (Tuple, bool, error) {
-	// ignore snapshot, just check if xids match
-	if len(it.table.Tempdata) < it.ix {
-		it.ix++
-		return Tuple{-1, it.table.Tempdata[it.ix-1]}, true, nil
-	} else {
-		return NULL_TUPLE, false, nil
+func (it *TempTableIterator) Next(check func([]Value) (bool, error)) (Tuple, bool, error) {
+	for {
+		// ignore snapshot, just check if xids match
+		if len(it.table.Tempdata) < it.ix {
+			it.ix++
+			candidate := it.table.Tempdata[it.ix-1]
+			found, err := check(candidate)
+			if err != nil {
+				return NULL_TUPLE, false, err
+			}
+			if found {
+				return Tuple{-1, candidate}, true, nil
+			}
+		} else {
+			return NULL_TUPLE, false, nil
+		}
 	}
 }
 
@@ -155,7 +164,7 @@ func (t *GoSqlTable) NewIterator(baseData *StatementBaseData, forChange bool, fo
 	var s *SnapShot
 	tra := baseData.Conn.Transaction
 	if tra == nil || tra.IsolationLevel == COMMITTED_READ {
-		s = GetSnapShot()
+		s = GetSnapShot(baseData.Conn.Transaction)
 		baseData.SnapShot = s // not yet clear, if the snapshot is necessary outside of Iterator
 	} else {
 		s = tra.SnapShot
@@ -167,7 +176,7 @@ func (t *GoSqlTable) NewIterator(baseData *StatementBaseData, forChange bool, fo
 	return &res
 }
 
-func (ti *GoSqlTableIterator) Next() (Tuple, bool, error) {
+func (ti *GoSqlTableIterator) Next(check func([]Value) (bool, error)) (Tuple, bool, error) {
 	// select versions against snapShot
 	for {
 		if ti.ix < len(ti.table.data) {
@@ -211,7 +220,13 @@ func (ti *GoSqlTableIterator) Next() (Tuple, bool, error) {
 				}
 			}
 			if actVersion != nil {
-				return Tuple{tuple.id, actVersion.Data}, true, nil
+				found, err := check(actVersion.Data)
+				if err != nil {
+					return NULL_TUPLE, false, err
+				}
+				if found {
+					return Tuple{tuple.id, actVersion.Data}, true, nil
+				}
 			} // else tuple is not visible in current snapshot
 		} else {
 			break // no more records there
@@ -249,9 +264,9 @@ func (t *GoSqlTable) Increment(columnName string) int64 {
 
 func (t *GoSqlTable) Insert(recordValues []Value, conn *GoSqlConnData) int64 {
 	StartTransaction(conn)
-	recordVersion := TupleVersion{recordValues, conn.Transaction.Xid, 0}
+	recordVersion := TupleVersion{recordValues, conn.Transaction.Xid, 0, 0, 0}
 	id := t.NextTupleId.Load()
-	tuple := VersionedTuple{id, []TupleVersion{recordVersion}, conn.Transaction.Xid}
+	tuple := VersionedTuple{id, []TupleVersion{recordVersion}}
 	t.NextTupleId.Add(1)
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -281,7 +296,7 @@ func (t *GoSqlTable) Update(recordId int64, recordValues []Value, conn *GoSqlCon
 					version.xmax = conn.Transaction.Xid
 				}
 			}
-			recordVersion := TupleVersion{recordValues, conn.Transaction.Xid, 0}
+			recordVersion := TupleVersion{recordValues, conn.Transaction.Xid, 0, 0, 0}
 			tuple.Versions = append(tuple.Versions, recordVersion)
 			t.data[ix] = tuple
 		}

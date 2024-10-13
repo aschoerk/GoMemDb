@@ -104,38 +104,38 @@ func (r *GoSqlUpdateRequest) Exec(args []Value) (Result, error) {
 	affectedRows := 0
 	it := r.table.NewIterator(r.BaseData(), true, false)
 	for {
-		tuple, ok, err := it.Next()
+		tuple, ok, err := it.Next(func(data []Value) (bool, error) {
+			res, err := whereCommands[0].m.Execute(args, data, nil)
+			if err != nil {
+				return false, err
+			}
+			whereResult, ok := res.(bool)
+			if !ok {
+				return false, fmt.Errorf("expected boolean expression as where term")
+			}
+			return whereResult, nil
+		})
 		if err != nil {
 			return nil, err
 		}
 		if !ok {
 			break
 		}
-		res, err := whereCommands[0].m.Execute(args, tuple.Data, nil)
-		if err != nil {
-			return nil, err
-		}
-		whereResult, ok := res.(bool)
-		if !ok {
-			return nil, fmt.Errorf("expected boolean expression as where term")
-		}
-		if whereResult {
-			affectedRows++
-			for ix, command := range commands {
-				result, err := command.m.Execute(args, tuple.Data, nil)
-				if err != nil {
-					return nil, err
-				}
-				results[ix] = result
+		affectedRows++
+		for ix, command := range commands {
+			result, err := command.m.Execute(args, tuple.Data, nil)
+			if err != nil {
+				return nil, err
 			}
-			resultTuple := slices.Clone(tuple.Data)
-			for ix, result := range results {
-				resultTuple[r.columnixs[ix]] = result
-			}
-			r.table.Update(tuple.Id, resultTuple, r.Conn)
+			results[ix] = result
 		}
+		resultTuple := slices.Clone(tuple.Data)
+		for ix, result := range results {
+			resultTuple[r.columnixs[ix]] = result
+		}
+		r.table.Update(tuple.Id, resultTuple, r.Conn)
 	}
-
+	data.EndStatement(&r.StatementBaseData)
 	return GoSqlResult{-1, int64(affectedRows)}, nil
 }
 
@@ -166,30 +166,30 @@ func (r *GoSqlDeleteRequest) Exec(args []Value) (Result, error) {
 	todelete := []int64{}
 	it := table.NewIterator(r.BaseData(), true, false)
 	for {
-		tuple, ok, err := it.Next()
+		tuple, ok, err := it.Next(func(data []Value) (bool, error) {
+			res, err := whereCommands[0].m.Execute(args, data, nil)
+			if err != nil {
+				return false, err
+			}
+			whereResult, ok := res.(bool)
+			if !ok {
+				return false, fmt.Errorf("expected boolean expression as where term")
+			}
+			return whereResult, nil
+		})
 		if err != nil {
 			return nil, err
 		}
 		if !ok {
 			break
 		}
-		res, err := whereCommands[0].m.Execute(args, tuple.Data, nil)
-		if err != nil {
-			return nil, err
-		}
-		whereResult, ok := res.(bool)
-		if !ok {
-			return nil, fmt.Errorf("expected boolean expression as where term")
-		}
-		if whereResult {
-			todelete = append(todelete, tuple.Id)
-		}
+		todelete = append(todelete, tuple.Id)
 	}
 	slices.Reverse(todelete)
 	for _, id := range todelete {
 		table.Delete(id, r.Conn)
 		affectedRows++
 	}
-
+	data.EndStatement(&r.StatementBaseData)
 	return GoSqlResult{-1, int64(affectedRows)}, nil
 }

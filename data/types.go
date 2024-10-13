@@ -25,6 +25,7 @@ const (
 
 type Transaction struct {
 	Xid            int64
+	Cid            int32
 	Started        int64
 	Ended          int64
 	ChangeCount    int64
@@ -37,6 +38,7 @@ type Transaction struct {
 type SnapShot struct {
 	xmin        int64
 	xmax        int64
+	Cid         int32
 	runningXids []int64
 }
 

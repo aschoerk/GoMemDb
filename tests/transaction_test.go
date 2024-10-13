@@ -22,14 +22,18 @@ func NewStatementBaseData(t *testing.T) *data.StatementBaseData {
 	return &data.StatementBaseData{conndata, nil, data.Executing}
 }
 
+func check(tuple []Value) (bool, error) {
+	return true, nil
+}
+
 func TestSnapshotAndIteratorOnEmptyTable(t *testing.T) {
 	table := data.NewTable("testtable", []data.GoSqlColumn{})
 	baseData := NewStatementBaseData(t)
 	assert.Nil(t, baseData.SnapShot)
-	it := table.NewIterator(baseData, false)
+	it := table.NewIterator(baseData, false, true)
 	assert.NotNil(t, baseData.SnapShot)
 	assert.Equal(t, int64(0), baseData.SnapShot.Xmin())
-	_, ok, _ := it.Next()
+	_, ok, _ := it.Next(check)
 	assert.False(t, ok)
 	err := data.EndStatement(baseData)
 	assert.Nil(t, err)
@@ -63,15 +67,15 @@ func TestSnapshotAndReadOnlyIteratorOnOneRecord(t *testing.T) {
 	baseData := NewStatementBaseData(t)
 	table.Insert(emptyRecord, baseData.Conn)
 	data.EndStatement(baseData)
-	it := table.NewIterator(baseData, false)
-	res, ok, _ := it.Next()
+	it := table.NewIterator(baseData, false, true)
+	res, ok, _ := it.Next(check)
 	assert.True(t, ok)
 	assert.NotEqual(t, emptyRecord, res)
 	s := data.GetSnapShot()
 	assert.Equal(t, int64(0), s.Xmin())
 	assert.Equal(t, int64(2), s.Xmax())
 	assert.Equal(t, 0, len(s.RunningIds()))
-	_, ok, _ = it.Next()
+	_, ok, _ = it.Next(check)
 	assert.False(t, ok)
 	data.EndStatement(baseData)
 }
@@ -81,15 +85,15 @@ func TestSnapshotAndUpdateIteratorOnOneRecord(t *testing.T) {
 	baseData := NewStatementBaseData(t)
 	table.Insert(emptyRecord, baseData.Conn)
 	data.EndStatement(baseData)
-	it := table.NewIterator(baseData, true)
-	res, ok, _ := it.Next()
+	it := table.NewIterator(baseData, true, true)
+	res, ok, _ := it.Next(check)
 	assert.True(t, ok)
 	assert.NotEqual(t, emptyRecord, res)
 	s := data.GetSnapShot()
 	assert.Equal(t, int64(2), s.Xmin())
 	assert.Equal(t, int64(3), s.Xmax())
 	assert.Equal(t, 1, len(s.RunningIds()))
-	_, ok, _ = it.Next()
+	_, ok, _ = it.Next(check)
 	assert.False(t, ok)
 	data.EndStatement(baseData)
 	s = data.GetSnapShot()
