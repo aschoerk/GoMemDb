@@ -49,7 +49,7 @@ type yyLexerEx interface {
 
 // DDL
 %token CREATE DATABASE SCHEMA ALTER TABLE ADD AS IF NOT EXISTS PRIMARY KEY AUTOINCREMENT
-%token <token> CHAR VARCHAR INTEGER FLOAT TEXT BOOLEAN TIMESTAMP
+%token <token> CHAR VARCHAR INTEGER FLOAT TEXT BOOLEAN TIMESTAMP FOR
 // DML
 %token SELECT DISTINCT ALL FROM WHERE GROUP BY HAVING ORDER ASC DESC UNION BETWEEN BETWEEN_AND AND IN INSERT UPDATE SET DELETE INTO VALUES
 %token LESS_OR_EQUAL GREATER_OR_EQUAL NOT_EQUAL PLUS MINUS LESS EQUAL GREATER MULTIPLY DIVIDE AND OR LIKE MOD
@@ -91,7 +91,7 @@ type yyLexerEx interface {
 %type <term> term nonboolean_term opt_where opt_having
 %type <orderByEntry> order_by_entry
 %type <orderByEntryList> order_by_entry_list opt_order_by
-%type <token> order_by_direction
+%type <token> order_by_direction opt_for_update
 %type <updateSpec> update_spec
 %type <updateSpecs> update_specs
 
@@ -184,7 +184,8 @@ select: SELECT
         { setExtraState(yylex, HAVING)}
         opt_having
         opt_order_by
-  { $$ = &GoSqlSelectRequest { NewStatementBaseData(), $3, $4, $7, $9, $11, $13, $14 }}
+        opt_for_update
+  { $$ = &GoSqlSelectRequest { NewStatementBaseData(), $3, $4, $7, $9, $11, $13, $14, $15 }}
 
 distinct_all: 
    { $$ = ALL }
@@ -282,6 +283,11 @@ opt_order_by:
   { $$ = nil}
   | ORDER BY order_by_entry_list
   { $$ = $3}
+
+opt_for_update:
+  { $$ = 0 }
+  | FOR UPDATE
+  { $$ = $1 }
 
 
 order_by_direction:

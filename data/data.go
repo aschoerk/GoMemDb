@@ -35,7 +35,7 @@ type Table interface {
 	Name() string
 	Columns() []GoSqlColumn
 	Data() *[][]Value
-	NewIterator(baseData *StatementBaseData, forChange bool) TableIterator
+	NewIterator(baseData *StatementBaseData, forChange bool, forSelect bool) TableIterator
 	FindColumn(name string) (int, error)
 	Insert(recordValues []Value, conn *GoSqlConnData) int64
 	Update(recordId int64, recordValues []Value, conn *GoSqlConnData)
@@ -47,10 +47,15 @@ type Tuple struct {
 	Data []driver.Value
 }
 
+const (
+	FOR_UPDATE_FLAG = 1
+)
+
 type TupleVersion struct {
-	Data []driver.Value
-	xmin int64
-	xmax int64
+	Data  []driver.Value
+	xmin  int64
+	xmax  int64
+	flags int64
 }
 
 type VersionedTuple struct {
@@ -65,6 +70,7 @@ type GoSqlTableIterator struct {
 	table       *GoSqlTable
 	ix          int
 	forChange   bool
+	forSelect   bool
 }
 
 type TempTableIterator struct {
@@ -131,7 +137,7 @@ func NewTable(name string, columns []GoSqlColumn) *GoSqlTable {
 	return res
 }
 
-func (t *TempTable) NewIterator(baseData *StatementBaseData, forChange bool) TableIterator {
+func (t *TempTable) NewIterator(baseData *StatementBaseData, forChange bool, forSelect bool) TableIterator {
 	if forChange {
 		panic("misuse of Temptables")
 	}
@@ -139,7 +145,7 @@ func (t *TempTable) NewIterator(baseData *StatementBaseData, forChange bool) Tab
 	return &res
 }
 
-func (t *GoSqlTable) NewIterator(baseData *StatementBaseData, forChange bool) TableIterator {
+func (t *GoSqlTable) NewIterator(baseData *StatementBaseData, forChange bool, forSelect bool) TableIterator {
 	if forChange {
 		if baseData.Conn.Transaction == nil || !baseData.Conn.Transaction.IsStarted() {
 			InitTransaction(baseData.Conn)
@@ -154,7 +160,7 @@ func (t *GoSqlTable) NewIterator(baseData *StatementBaseData, forChange bool) Ta
 	} else {
 		s = tra.SnapShot
 	}
-	res := GoSqlTableIterator{baseData.Conn.Transaction, s, t, 0, forChange}
+	res := GoSqlTableIterator{baseData.Conn.Transaction, s, t, 0, forChange, forSelect}
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.iterators = append(t.iterators, &res)
@@ -178,6 +184,8 @@ func (ti *GoSqlTableIterator) Next() (Tuple, bool, error) {
 				}
 				if changedInThisTransaction { // have already a tuple out of this transaction seen, so only regard version as such
 					if version.xmin == ti.Transaction.Xid {
+						// found another version created in this transaction
+						// TODO: multiple UPDATES in one transaction on the same tuple
 						if actVersion.xmax != ti.Transaction.Xid {
 							panic("found younger tuple, but this was changed in another transaction")
 						}

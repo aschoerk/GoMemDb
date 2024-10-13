@@ -117,6 +117,7 @@ TEXT { return res(yy.Context.lval, TEXT) }
 TIMESTAMP { return res(yy.Context.lval, TIMESTAMP) }
 NULL { return NULL }
 IS { return IS }
+FOR { return FOR }
 
 SELECT { return SELECT }
 DISTINCT { return DISTINCT }

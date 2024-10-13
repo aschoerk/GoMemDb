@@ -21,6 +21,7 @@ type GoSqlSelectRequest struct {
 	groupBy     []Value
 	having      *GoSqlTerm
 	orderBy     []GoSqlOrderBy
+	forupdate   int
 }
 
 func (r *GoSqlSelectRequest) Exec(args []Value) (Result, error) {
@@ -116,7 +117,7 @@ func (r *GoSqlSelectRequest) Query(args []Value) (Rows, error) {
 			return nil, err
 		}
 		evaluationContexts = append(evaluationContexts, evaluationResults...)
-		temptableName, err := createAndFillTempTable(r, evaluationContexts, args, &names, whereExecutionContext, havingExecutionContext, sizeSelectList)
+		temptableName, err := createAndFillTempTable(r, evaluationContexts, args, &names, whereExecutionContext, havingExecutionContext, sizeSelectList, r.forupdate)
 		if err != nil {
 			return nil, err
 		}
@@ -146,14 +147,15 @@ func createAndFillTempTable(
 	names *[]SLName,
 	whereExecutionContext int,
 	havingExecutionContext int,
-	sizeSelectList int) (string, error) {
+	sizeSelectList int,
+	forUpdate int) (string, error) {
 
 	name := createTempTable(evaluationContexts, names, sizeSelectList)
 	tempTable := data.Tables[name]
 	table := data.Tables[query.from]
 	tableix := 0
 
-	it := table.NewIterator(query.BaseData(), false)
+	it := table.NewIterator(query.BaseData(), forUpdate == FOR, true)
 	for {
 		tuple, ok, err := it.Next()
 		if err != nil {
