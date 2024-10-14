@@ -176,6 +176,120 @@ func (t *GoSqlTable) NewIterator(baseData *StatementBaseData, forChange bool, fo
 	return &res
 }
 
+type VisibleResult int
+
+const (
+	VISIBLE VisibleResult = iota + 1
+	INVISIBLE
+	LOOK_PREVIOUS      // version was effected by actions later than snapshot
+	NOT_DETERMINED_YET // tra is running, but version and therefore tuple not effected (yet?)
+	INVALID
+)
+
+func (ti *GoSqlTableIterator) evalAtRunningTransaction(actVersion *TupleVersion, bool mostRecentVersion) (VisibleResult, error) {
+	if ti.Transaction.Xid == actVersion.xmin {
+		if actVersion.xmax == 0 {
+			if !mostRecentVersion {
+				return INVALID, fmt.Errorf("xmax == 0 in not most recent version")
+			}
+			if actVersion.cid < ti.SnapShot.Cid {
+				return VISIBLE, nil
+			} else {
+				return INVISIBLE, nil
+			}
+		} else if actVersion.xmax == ti.Transaction.Xid {
+			if actVersion.cid < ti.SnapShot.Cid { // locked before snapshot was created
+				return VISIBLE, nil
+			} else { // xmax setting is not seen, so look for cid in previous version, if it exists
+				return LOOK_PREVIOUS, nil
+			}
+		} else {
+			return INVALID, fmt.Errorf("cannot be running transaction %d if xmax was set to %d", actVersion.xmin, actVersion.xmax)
+		}
+	} else {
+		if actVersion.xmax == ti.Transaction.Xid { // locked in this transaction
+			tra, err := GetTransaction(actVersion.xmin)
+			if err != nil {
+				return INVALID, err
+			}
+			if tra.IsStarted() {
+				return INVALID, fmt.Errorf("Tra %d should not be started if current tra was able to lock record", actVersion.xmin)
+			}
+			if actVersion.cid >= ti.SnapShot.Cid {
+				return LOOK_PREVIOUS, nil // change in this transaction cannot be seen in this snapshot
+			} else {
+				return VISIBLE, nil // locked but visible
+			}
+		} else { // version not affected by tra yet
+			return NOT_DETERMINED_YET, nil
+		}
+	}
+}
+
+func (ti *GoSqlTableIterator) handleXMaxNotRelevant(actVersion *TupleVersion, mostRecentVersion bool) (VisibleResult, error) {
+	if actVersion.xmin >= ti.SnapShot.xmax {
+		return LOOK_PREVIOUS, nil
+	} else {
+		if slices.Contains(ti.SnapShot.runningXids, actVersion.xmin) {
+			return LOOK_PREVIOUS, nil
+		} else {
+			tra, err := GetTransaction(actVersion.xmin)
+			if err != nil {
+				return INVALID, err
+			}
+			if tra.State == ROLLEDBACK {
+				return LOOK_PREVIOUS, nil
+			}
+			if tra.IsStarted() {
+				return INVALID, fmt.Errorf("expected xmin-tra %d to be not running")
+			}
+			return VISIBLE, nil
+		}
+	}
+
+}
+
+func (ti *GoSqlTableIterator) isVisible(actVersion *TupleVersion, mostRecentVersion bool) (VisibleResult, error) {
+	if ti.Transaction != nil {
+		res, err := ti.evalAtRunningTransaction(actVersion, mostRecentVersion)
+		if err != nil {
+			return INVALID, err
+		}
+		switch res {
+		case LOOK_PREVIOUS:
+		case VISIBLE:
+		case INVISIBLE:
+			return res, err
+		case INVALID:
+			panic("not expected")
+		case NOT_DETERMINED_YET:
+			break
+		}
+	}
+	if actVersion.xmax == 0 {
+		return ti.handleXMaxNotRelevant(actVersion, mostRecentVersion)
+	} else {
+		if ti.SnapShot.xmax <= actVersion.xmax || slices.Contains(ti.SnapShot.runningXids, actVersion.xmax) {
+			tra, err := GetTransaction(actVersion.xmax)
+			if err != nil {
+				return INVALID, err
+			}
+			if tra.IsStarted() || tra.State == ROLLEDBACK {
+				return ti.handleXMaxNotRelevant(actVersion, mostRecentVersion)
+			}
+		}
+		tra, err := GetTransaction(actVersion.xmax)
+		if err != nil {
+			return INVALID, err
+		}
+		if tra.IsStarted() {
+
+		}
+
+	}
+
+}
+
 func (ti *GoSqlTableIterator) Next(check func([]Value) (bool, error)) (Tuple, bool, error) {
 	// select versions against snapShot
 	for {

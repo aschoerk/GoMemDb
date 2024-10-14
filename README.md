@@ -19,7 +19,7 @@ A project allowing me to use go in a not so simple environment. The idea is to i
 
 ### Iterator Next
 
-* if record visible next uses check function then locking is done,
+* if record visible Next uses check function then locking is done if necessary,
 * xmin, xmax: entries in version header
 * s.committed: committed (according to tra data) < s.xmax,  not running according to snapshot (not in s.running)
 * s.xmax at time of creation of snapshot the next xid to be assigned to a transaction
@@ -31,6 +31,40 @@ A project allowing me to use go in a not so simple environment. The idea is to i
 * statement numbers are only relevant for running transactions, therefore for each change of a version the current statementnumber is stored in the header
 * if r.xmin == r.xmax the statement number belongs to xmax change
 * if r.xmax == 0: the cid belongs to xmin change it gets overwritten by xmax change. <-- inserts can not be distinguished by statement number if updates happen later. solution: inserts might vanish if selected for update
+
+
+### Systematic analysis 
+
+Discuss situations during Visibility check together with collecting information for locking possibilities
+
+| tra     | r.xmin              | r.xmax                         | r.cid    | lock for change possible?                           | todo                                            |
+|---------|---------------------|--------------------------------|----------|-----------------------------------------------------|-------------------------------------------------|
+| xid     | == xid              | == 0                           | >= s.cid | no, unseen change in same tra                       | Check Previous                                  |
+| xid     | == xid              | == 0                           | < s.cid  | already                                             | return Visible                                  |
+| xid     | == xid              | == xid                         | >= s.cid | no, unseen change in same tra                       | Previous knowing Insert happened (xmin == xid), |
+| xid     | == xid              | == xid                         | < s.cid  | yes, but already done                               | InVisible deleted                               |
+| xid     | == xid              | == xid for update              | < s.cid  | yes, but already done                               | return Visible                                  |
+| xid     | == xid              | != xid                         |          | n/a                                                 | illegal                                         |
+| xid     | != xid              | == xid                         | >= s.cid | no, unseen change in same tra                       | return Visible                                  |
+| xid     | != xid              | == xid                         | < s.cid  | Invisible                                           | InVisible, deleted                              |
+| xid     | != xid              | == xid for update              | < s.cid  | yes, but already done                               | return Visible                                  |
+| xid/nil | != xid c, Unvisible | n/a                            | n/a      | no, changed in diff tra                             | Previous: r.xmax == act r.xmin                  |
+| xid/nil | != xid rb,          | n/a                            | n/a      | yes                                                 | Previous: r.xmax == act r.xmin                  |
+| xid/nil | != xid c, Visible   | == 0                           | n/a      | yes,                                                | Visible                                         |
+| xid/nil | != xid c, Visible   | != xid c, Visible              | n/a      | no                                                  | InVisible, deleted                              |
+| xid/nil | != xid c, Visible   | != xid c, UnVisible            | n/a      | no                                                  | Visible                                         |
+| xid/nil | != xid c, Visible   | != xid c, Visible for update   | n/a      | no                                                  | Visible                                         |
+| xid/nil | != xid c, Visible   | != xid c, UnVisible for update | n/a      | no                                                  | Visible                                         |
+| xid/nil | != xid c, Visible   | != xid rolledback              | n/a      | yes                                                 | Visible                                         |
+| xid/nil | != xid c, Visible   | != xid running                 | n/a      | wait                                                | dependent on tra result                         |
+| xid/nil | != xid rolled back  | n/a                            | n/a      | open, version deletable                             | Previous, delete version                        |
+| xid/nil | != xid running      | n/a                            | n/a      | if previous visible wait for r.xmin commit/rollback | Previous                                        |
+
+
+
+### First try of table
+
+
 
 | Cond1            | Cond2            | Cond3            | Version Situation                                                    |                                                                                                              |
 |------------------|------------------|------------------|----------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------|
