@@ -29,7 +29,7 @@ type GoSqlColumn struct {
 }
 
 type TableIterator interface {
-	Next(func([]Value) (bool, error)) (Tuple, bool, error)
+	Next(func([]Value) (bool, error), bool) (Tuple, bool, error)
 }
 
 type Table interface {
@@ -79,7 +79,7 @@ type TempTableIterator struct {
 	ix    int
 }
 
-func (it *TempTableIterator) Next(check func([]Value) (bool, error)) (Tuple, bool, error) {
+func (it *TempTableIterator) Next(check func([]Value) (bool, error), forUpdate bool) (Tuple, bool, error) {
 	for {
 		// ignore snapshot, just check if xids match
 		if len(it.table.Tempdata) < it.ix {
@@ -335,65 +335,35 @@ func (ti *GoSqlTableIterator) isVisibleTuple(tuple *VersionedTuple, forUpdate bo
 		return ti.isVisibleTupleNoTra(tuple, forUpdate, offset)
 	} else {
 
-		tuple was already changed in current tra
+		// tuple was already changed in current tra
 	}
 
 }
 
-func (ti *GoSqlTableIterator) Next(check func([]Value) (bool, error)) (Tuple, bool, error) {
+func (ti *GoSqlTableIterator) Next(check func([]Value) (bool, error), forUpdate bool) (Tuple, bool, error) {
 	// select versions against snapShot
 	for {
 		if ti.ix < len(ti.table.data) {
 			tuple := ti.table.data[ti.ix]
 			ti.ix++
-			var actVersion *TupleVersion
-			var tratimestamp int64
-			changedInThisTransaction := false
-			for _, version := range tuple.Versions {
-				if version.xmin >= ti.SnapShot.xmax { // don't respect changes of transactions started later
-					if ti.forChange {
-						return NULL_TUPLE, false, fmt.Errorf("Serialization Error, tuple %d changed after of snapshot", tuple.id)
-					}
-				}
-				if changedInThisTransaction { // have already a tuple out of this transaction seen, so only regard version as such
-					if version.xmin == ti.Transaction.Xid {
-						// found another version created in this transaction
-						// TODO: multiple UPDATES in one transaction on the same tuple
-						if actVersion.xmax != ti.Transaction.Xid {
-							panic("found younger tuple, but this was changed in another transaction")
-						}
-						actVersion = &version // assume this to be a younger version
-					}
-					continue
-				}
-				if ti.Transaction != nil && version.xmin == ti.Transaction.Xid {
-					// changed in this transaction
-					actVersion = &version
-					changedInThisTransaction = true
+			visible, err, version := ti.isVisibleTuple(tuple, forUpdate, 0)
+			if err != nil && err != WAIT_FOR_TRA_ERROR {
+				return NULL_TUPLE, false, err
+			}
+			if !visible {
+				continue
+			}
+			selected, err := check(version.Data)
+			if err != nil {
+				return NULL_TUPLE, false, err
+			}
+			if selected {
+				if forUpdate {
+
 				} else {
-					if !slices.Contains(ti.SnapShot.runningXids, version.xmin) {
-						t, err := GetTransaction(version.xmin)
-						if err != nil {
-							panic(err)
-						}
-						if tratimestamp == 0 || tratimestamp < t.Ended {
-							tratimestamp = t.Ended
-							actVersion = &version
-						}
-					}
+					return Tuple{tuple.id, version.Data}, true, nil
 				}
 			}
-			if actVersion != nil {
-				found, err := check(actVersion.Data)
-				if err != nil {
-					return NULL_TUPLE, false, err
-				}
-				if found {
-					return Tuple{tuple.id, actVersion.Data}, true, nil
-				}
-			} // else tuple is not visible in current snapshot
-		} else {
-			break // no more records there
 		}
 	}
 	ti.table.mu.Lock()
