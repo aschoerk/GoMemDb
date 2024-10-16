@@ -182,55 +182,29 @@ var SERIALIZATION_ERROR error = errors.New("SerializationError")
 var WAIT_FOR_TRA_ERROR error = errors.New("WaitforTra")
 
 func (ti *GoSqlTableIterator) isVisible(xid int64) bool {
-	if xid >= ti.SnapShot.xmax {
-		return false
-	} else if slices.Contains(ti.SnapShot.runningXids, xid) {
-		return false
-	} else {
-		xminTra, err := GetTransaction(xid)
-		if err != nil {
-			fmt.Printf("panic: %v\n", err)
-			return false
-		}
-		if xminTra.State == ROLLEDBACK {
-			return false
-		}
-
-		return true
-	}
+	return xid < ti.SnapShot.xmax && !ti.isRunning(xid) && !ti.isRolledback(xid)
 }
 
 func (ti *GoSqlTableIterator) isRolledback(xid int64) bool {
-	xminTra, err := GetTransaction(xid)
-	if err != nil {
-		fmt.Printf("panic: %v\n", err)
-		return false
+	bySnapshot := slices.Contains(ti.SnapShot.rolledbackXids, xid)
+	if !bySnapshot && xid < ti.SnapShot.xmin {
+		tra, err := GetTransaction(xid)
+		if err != nil {
+			fmt.Printf("during GetTransaction: \v", err)
+			return false
+		}
+		return tra.State == ROLLEDBACK
+	} else {
+		return bySnapshot
 	}
-	if xminTra.State == ROLLEDBACK {
-		return true
-	}
-	return false
 }
 
 func (ti *GoSqlTableIterator) isCommitted(xid int64) bool {
-	xminTra, err := GetTransaction(xid)
-	if err != nil {
-		fmt.Printf("panic: %v\n", err)
-		return false
-	}
-	if xminTra.State == COMMITTED {
-		return true
-	}
-	return false
+	return xid < ti.SnapShot.xmax && !ti.isRolledback(xid) && !ti.isRunning(xid)
 }
 
 func (ti *GoSqlTableIterator) isRunning(xid int64) bool {
-	xminTra, err := GetTransaction(xid)
-	if err != nil {
-		fmt.Printf("panic: %v\n", err)
-		return false
-	}
-	return xminTra.IsStarted()
+	return slices.Contains(ti.SnapShot.runningXids, xid)
 }
 
 func errorIfUpdate(forUpdate bool) error {
@@ -249,7 +223,7 @@ func waitIfUpdate(forUpdate bool) error {
 	}
 }
 
-func (ti *GoSqlTableIterator) isVisibleTupleNoTra(tuple *VersionedTuple, forUpdate bool, offset int) (bool, error, *TupleVersion) {
+func (ti *GoSqlTableIterator) isVisibleTupleNoTraEffect(tuple *VersionedTuple, forUpdate bool, offset int) (bool, error, *TupleVersion) {
 	versionLen := len(tuple.Versions)
 	if versionLen < offset {
 		return false, nil, nil
@@ -295,10 +269,11 @@ func (ti *GoSqlTableIterator) isVisibleTupleNoTra(tuple *VersionedTuple, forUpda
 			if offset != 0 {
 				return false, errors.New("Illegal version xmin rolled back at offset > 0"), nil
 			}
+
 			tuple.Versions = tuple.Versions[:len(tuple.Versions)-1]
-			return ti.isVisibleTupleNoTra(tuple, forUpdate, offset)
+			return ti.isVisibleTupleNoTraEffect(tuple, forUpdate, offset)
 		} else if ti.isRunning(firstVersion.xmax) {
-			visible, err, tuple := ti.isVisibleTupleNoTra(tuple, forUpdate, 1)
+			visible, err, tuple := ti.isVisibleTupleNoTraEffect(tuple, forUpdate, 1)
 			if err != nil || !visible {
 				return false, err, nil
 			}
@@ -319,6 +294,26 @@ func (ti *GoSqlTableIterator) isVisibleTupleNoTra(tuple *VersionedTuple, forUpda
 	}
 }
 
+func (ti *GoSqlTableIterator) isVisibleTupleWithTraEffect(tuple *VersionedTuple, forUpdate bool, offset int) (bool, error, *TupleVersion) {
+	versionLen := len(tuple.Versions)
+	if versionLen < offset {
+		return false, nil, nil
+	}
+	firstVersion := &tuple.Versions[versionLen-1-offset]
+	if ti.Transaction == nil {
+		return false, fmt.Errorf("Expected transaction do be active in isVisibleTupleWithTraEffect ")
+	}
+	s := ti.SnapShot
+	if firstVersion.xmin == ti.Transaction.Xid && firstVersion.xmax == 0 && firstVersion.cid >= s.Cid {
+		if versionLen == 1 {
+			return false, nil, nil
+		}
+		actVersion := &tuple.Versions[versionLen-2]
+		if actVersion.xmax != 
+
+	}
+}
+
 func (ti *GoSqlTableIterator) isVisibleTuple(tuple *VersionedTuple, forUpdate bool, offset int) (bool, error, *TupleVersion) {
 	xid := int64(-1)
 	cid := int32(-1)
@@ -332,10 +327,10 @@ func (ti *GoSqlTableIterator) isVisibleTuple(tuple *VersionedTuple, forUpdate bo
 	}
 	firstVersion := &tuple.Versions[versionLen-1-offset]
 	if firstVersion.xmin != xid && firstVersion.xmax != xid || xid == -1 {
-		return ti.isVisibleTupleNoTra(tuple, forUpdate, offset)
+		return ti.isVisibleTupleNoTraEffect(tuple, forUpdate, offset)
 	} else {
-
 		// tuple was already changed in current tra
+		return ti.isVisibleTupleWithTraEffect(tuple, forUpdate, offset)
 	}
 
 }
@@ -346,7 +341,7 @@ func (ti *GoSqlTableIterator) Next(check func([]Value) (bool, error), forUpdate 
 		if ti.ix < len(ti.table.data) {
 			tuple := ti.table.data[ti.ix]
 			ti.ix++
-			visible, err, version := ti.isVisibleTuple(tuple, forUpdate, 0)
+			visible, err, version := ti.isVisibleTuple(&tuple, forUpdate, 0)
 			if err != nil && err != WAIT_FOR_TRA_ERROR {
 				return NULL_TUPLE, false, err
 			}

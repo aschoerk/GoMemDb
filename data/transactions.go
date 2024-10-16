@@ -181,6 +181,7 @@ func GetSnapShot(transaction *Transaction) *SnapShot {
 	xmin := transactionManager.lowestRunningXid.Load()
 	xmax := transactionManager.nextXid.Load()
 	runningXids := []int64{}
+	rolledBackXids := []int64{}
 	cid := int32(0)
 	if transaction != nil {
 		cid = transaction.Cid
@@ -193,10 +194,12 @@ func GetSnapShot(transaction *Transaction) *SnapShot {
 			}
 			if tra.State == STARTED || tra.State == ROLLBACKONLY {
 				runningXids = append(runningXids, tra.Xid)
+			} else if tra.State == ROLLEDBACK {
+				rolledBackXids = append(rolledBackXids, tra.Xid)
 			}
 		}
 	}
-	return &SnapShot{xmin, xmax, cid, runningXids}
+	return &SnapShot{xmin, xmax, cid, runningXids, rolledBackXids}
 }
 
 func (s *SnapShot) Xmin() int64 {

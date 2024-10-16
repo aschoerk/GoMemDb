@@ -36,10 +36,11 @@ type Transaction struct {
 }
 
 type SnapShot struct {
-	xmin        int64
-	xmax        int64
-	Cid         int32
-	runningXids []int64
+	xmin           int64
+	xmax           int64
+	Cid            int32
+	runningXids    []int64
+	rolledbackXids []int64
 }
 
 type GoSqlConnData struct {

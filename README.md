@@ -93,66 +93,6 @@ Discuss situations during Visibility check together with collecting information 
 |       |       |           | records not touched by xid yet   |                                     |            |                                   |                                                       |
 
 
-### First try of table
-
-
-
-| Cond1            | Cond2            | Cond3            | Version Situation                                                    |                                                                                                              |
-|------------------|------------------|------------------|----------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------|
-| forChange\nfalse | forSelect false  | -                | -                                                                    | illegal                                                                                                      |
-|                  | for Select true  | Uncommitted Read | -                                                                    | Snapshot is Iterator spec\nNext shows                                                                        |
-|                  |                  |                  | xid assigned, xmin xid, xmax == 0,                                | look at the statement number if >= to s.cid, go to previous version                                          |
-|                  |                  |                  | xid assigned, xmin xid, xmax != xid                               | illegal, other tra changed\nrecord not committed yet                                                         |
-|                  |                  |                  | xid assigned, xmin xid, xmax xid                               | if r.cid >= s.cid                                                                                            |
-|                  |                  |                  |                                                                      | - look at cid of previous version: valid for current xmin                                                    |
-|                  |                  |                  |                                                                      | - if >= s.cid, look at previous version                                                                      |
-|                  |                  |                  | xid assigned, xmin != xid, xmax xid                               | if r.cid < s.cid: ignore record, record might have bin inserted before cursor started, nevertheless ignored. |
-|                  |                  |                  |                                                                      | if r.cid >= s.cid: xmin must be committed tra take this version                                              |
-|                  |                  |                  | xmin s.committed tra, xmax == 0, max xmin < s.xmax                   | take this version                                                                                            |
-|                  |                  |                  | xmin s.committed tra, xmax s.committed tra < s.xmax                  | record deleted ignore this record                                                                            |
-|                  |                  |                  | xmin s.committed tra, xmax s.committed tra < s.xmax, only for update | record was marked for update, no update happened use this version                                            |
-|                  |                  |                  | xmin s.committed tra, xmax s.running tra                             | not deleted yet, take this version                                                                           |
-|                  |                  |                  | xmin s.committed tra, xmax s.rolledback tra                          | not deleted in snapshot, take version                                                                        |
-|                  |                  |                  | xmin s.running tra, no previous version                              | ignore record                                                                                                |
-|                  |                  |                  | xmin s.running tra, previous version ex.                             | eval previous version                                                                                        |
-|                  |                  |                  | xmin >= s.xmax, no previous version                                  | ignore record                                                                                                |
-|                  |                  |                  | xmin >= s.xmax, previous version ex                                  | eval previous version                                                                                        |
-|                  |                  |                  | xmin s.rolledback tra  no previous version                           | ignore record                                                                                                |
-|                  |                  |                  | xmin s.rolledback tra  ex previous version                           | eval previous version                                                                                        |
-| forChange\ntrue  | forSelect\ntrue  |                  | -                                                                    | -                                                                                                            |
-|                  |                  |                  | xid assigned!, xmin xid, xmax == 0,                               | if r.cid > s.cid: ignore record                                                                              |
-|                  |                  |                  |                                                                      | else set xmax, forSelect flag, r.cid := current s.cid                                                        |
-|                  |                  |                  | xid assigned!, xmin xid, xmax == xid                              | already locked for update                                                                                    |
-|                  |                  |                  | xmin s.committed tra, xmax == 0,                                     | set xmax, forSelect flag, r.cid := current s.cid                                                             |
-|                  |                  |                  | xmin s.committed tra, xmax s.committed tra < s.xmax                  | record deleted ignore this record                                                                            |
-|                  |                  |                  | xmin s.committed tra, xmax s.committed tra < s.xmax, only for update | record was marked for update, no update happened use this version                                            |
-|                  |                  |                  |                                                                      | --> set xmax, forSelect flag, r.cid := current s.cid                                                         |
-|                  |                  |                  | xmin s.committed tra, xmax s.running tra                             | wait for running tra                                                                                         |
-|                  |                  |                  | xmin s.committed tra, xmax s.rolledback tra                          | set xmax, forSelect flag, r.cid := current s.cid                                                             |
-|                  |                  |                  | xmin s.running tra, no previous version                              | ignore record                                                                                                |
-|                  |                  |                  | xmin s.running tra, previous version ex.                             | eval previous version, if relevant, wait                                                                     |
-|                  |                  |                  | xmin >= s.xmax, no previous version                                  | ignore record                                                                                                |
-|                  |                  |                  | xmin >= s.xmax, previous version ex                                  | eval previous version                                                                                        |
-|                  |                  |                  | xmin s.rolledback tra  no previous version                           | ignore record                                                                                                |
-|                  |                  |                  | xmin s.rolledback tra  ex previous version                           | eval previous version                                                                                        |
-| forChange\ntrue  | forSelect\nfalse |                  | -                                                                    | -                                                                                                            |
-|                  |                  |                  | xid assigned!, xmin == xid, xmax == 0,                               | if r.cid > s.cid: ignore record                                                                              |
-|                  |                  |                  |                                                                      | else set xmax, forSelect false, r.cid := current s.cid                                                       |
-|                  |                  |                  | xid assigned!, xmin == xid, xmax == xid                              | already locked for update                                                                                    |
-|                  |                  |                  | xmin s.committed tra, xmax == 0,                                     | set xmax, forSelect false, r.cid := current s.cid                                                            |
-|                  |                  |                  | xmin s.committed tra, xmax s.committed tra < s.xmax                  | record deleted ignore this record                                                                            |
-|                  |                  |                  | xmin s.committed tra, xmax s.committed tra < s.xmax, only for update | record was marked for update, no update happened use this version                                            |
-|                  |                  |                  |                                                                      | --> set xmax, forSelect flag, r.cid := current s.cid                                                         |
-|                  |                  |                  | xmin s.committed tra, xmax s.running tra                             | wait for running tra                                                                                         |
-|                  |                  |                  | xmin s.committed tra, xmax s.rolledback tra                          | set xmax, forSelect flag, r.cid := current s.cid                                                             |
-|                  |                  |                  | xmin s.running tra, no previous version                              | ignore record                                                                                                |
-|                  |                  |                  | xmin s.running tra, previous version ex.                             | eval previous version, if relevant, wait                                                                     |
-|                  |                  |                  | xmin >= s.xmax, no previous version                                  | ignore record                                                                                                |
-|                  |                  |                  | xmin >= s.xmax, previous version ex                                  | eval previous version                                                                                        |
-|                  |                  |                  | xmin s.rolledback tra  no previous version                           | ignore record                                                                                                |
-|                  |                  |                  | xmin s.rolledback tra  ex previous version                           | eval previous version                                                                                        |
-
-
 
 
 
