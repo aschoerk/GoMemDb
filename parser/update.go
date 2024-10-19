@@ -102,7 +102,7 @@ func (r *GoSqlUpdateRequest) Exec(args []Value) (Result, error) {
 	results := make([]Value, len(r.columnixs))
 
 	affectedRows := 0
-	it := r.table.NewIterator(r.BaseData(), true, false)
+	it := r.table.NewIterator(r.BaseData(), true)
 	for {
 		tuple, ok, err := it.Next(func(data []Value) (bool, error) {
 			res, err := whereCommands[0].m.Execute(args, data, nil)
@@ -164,7 +164,7 @@ func (r *GoSqlDeleteRequest) Exec(args []Value) (Result, error) {
 	}
 	affectedRows := 0
 	todelete := []int64{}
-	it := table.NewIterator(r.BaseData(), true, false)
+	it := table.NewIterator(r.BaseData(), true)
 	for {
 		tuple, ok, err := it.Next(func(data []Value) (bool, error) {
 			res, err := whereCommands[0].m.Execute(args, data, nil)

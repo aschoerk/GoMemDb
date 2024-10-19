@@ -39,7 +39,7 @@ type Table interface {
 	Name() string
 	Columns() []GoSqlColumn
 	Data() *[][]driver.Value
-	NewIterator(baseData *StatementBaseData, forChange bool, forSelect bool) TableIterator
+	NewIterator(baseData *StatementBaseData, forChange bool) TableIterator
 	FindColumn(name string) (int, error)
 	Insert(recordValues []driver.Value, conn *GoSqlConnData) int64
 	Update(recordId int64, recordValues []driver.Value, conn *GoSqlConnData) bool
@@ -74,8 +74,7 @@ type GoSqlTableIterator struct {
 	SnapShot    *SnapShot
 	table       *GoSqlTable
 	nextKey     int64
-	forChange   bool
-	forSelect   bool
+	forUpdate   bool
 }
 
 type TempTableIterator struct {
@@ -152,7 +151,7 @@ func NewTable(name string, columns []GoSqlColumn) *GoSqlTable {
 	return res
 }
 
-func (t *TempTable) NewIterator(baseData *StatementBaseData, forChange bool, forSelect bool) TableIterator {
+func (t *TempTable) NewIterator(baseData *StatementBaseData, forChange bool) TableIterator {
 	if forChange {
 		panic("misuse of Temptables")
 	}
@@ -160,8 +159,8 @@ func (t *TempTable) NewIterator(baseData *StatementBaseData, forChange bool, for
 	return &res
 }
 
-func (t *GoSqlTable) NewIterator(baseData *StatementBaseData, forChange bool, forSelect bool) TableIterator {
-	if forChange || forSelect {
+func (t *GoSqlTable) NewIterator(baseData *StatementBaseData, forChange bool) TableIterator {
+	if forChange {
 		if baseData.Conn.Transaction == nil || !baseData.Conn.Transaction.IsStarted() {
 			InitTransaction(baseData.Conn)
 			startTransactionInternal(baseData.Conn.Transaction)
@@ -175,7 +174,7 @@ func (t *GoSqlTable) NewIterator(baseData *StatementBaseData, forChange bool, fo
 	} else {
 		s = tra.SnapShot
 	}
-	res := GoSqlTableIterator{baseData.Conn.Transaction, s, t, 0, forChange, forSelect}
+	res := GoSqlTableIterator{baseData.Conn.Transaction, s, t, 0, forChange}
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.iterators = append(t.iterators, &res)
@@ -576,7 +575,7 @@ func (ti *GoSqlTableIterator) handleCandidate(check func([]driver.Value) (bool, 
 }
 
 func (ti *GoSqlTableIterator) Next(check func([]driver.Value) (bool, error)) (Tuple, bool, error) {
-	forUpdate := ti.forChange || ti.forSelect
+	forUpdate := ti.forUpdate
 	// select versions against snapShot
 	for {
 		ti.table.mu.RLock()

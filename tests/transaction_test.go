@@ -39,7 +39,7 @@ func TestSnapshotAndIteratorOnEmptyTable(t *testing.T) {
 	table := InitTraAndTestTable()
 	baseData := NewStatementBaseData(t)
 	assert.Nil(t, baseData.SnapShot)
-	it := table.NewIterator(baseData, false, true)
+	it := table.NewIterator(baseData, true)
 	assert.NotNil(t, baseData.SnapShot)
 	assert.Equal(t, int64(1), baseData.SnapShot.Xmin())
 	_, ok, _ := it.Next(check)
@@ -76,7 +76,7 @@ func TestSnapshotAndReadOnlyIteratorOnOneRecord(t *testing.T) {
 	baseData := NewStatementBaseData(t)
 	table.Insert(initialRecord, baseData.Conn)
 	data.EndStatement(baseData)
-	it := table.NewIterator(baseData, false, true)
+	it := table.NewIterator(baseData, true)
 	res, ok, _ := it.Next(check)
 	assert.True(t, ok)
 	assert.NotEqual(t, initialRecord, res)
@@ -94,7 +94,7 @@ func TestSnapshotAndUpdateIteratorOnOneRecord(t *testing.T) {
 	baseData := NewStatementBaseData(t)
 	table.Insert(initialRecord, baseData.Conn)
 	data.EndStatement(baseData)
-	it := table.NewIterator(baseData, true, true)
+	it := table.NewIterator(baseData, true)
 	res, ok, _ := it.Next(check)
 	assert.True(t, ok)
 	assert.NotEqual(t, initialRecord, res)
@@ -121,15 +121,11 @@ func (t *T) doI() int64 {
 }
 
 func (t *T) makeIt() data.TableIterator {
-	return t.table.NewIterator(t.baseData, false, false)
+	return t.table.NewIterator(t.baseData, false)
 }
 
 func (t *T) makeUIt() data.TableIterator {
-	return t.table.NewIterator(t.baseData, true, false)
-}
-
-func (t *T) makeSIt() data.TableIterator {
-	return t.table.NewIterator(t.baseData, false, true)
+	return t.table.NewIterator(t.baseData, true)
 }
 
 func (t *T) doU(id int64) bool {
@@ -240,7 +236,7 @@ func TestN4(t *testing.T) {
 	r1 := t1.doI()
 	t1.doEos()
 	t2 := NewT(t, table)
-	it2 := t2.makeSIt()
+	it2 := t2.makeUIt()
 	res2, _, _ := it2.Next((check)) // to make xmax flagged
 	assert.Equal(t, r1, res2.Id)
 	it1 := t1.makeIt()
@@ -256,7 +252,7 @@ func TestN5(t *testing.T) {
 	t1.doEos()
 	it1 := t1.makeIt()
 	t2 := NewT(t, table)
-	it2 := t2.makeSIt()
+	it2 := t2.makeUIt()
 	res2, _, _ := it2.Next((check)) // to make xmax flagged, but unvisible anyway for t1
 	assert.Equal(t, r1, res2.Id)
 	res, _, err := it1.Next(check)
@@ -286,10 +282,10 @@ func TestNX(t *testing.T) {
 	r1 := t1.doI()
 	t1.doEos()
 	t2 := NewT(t, table)
-	it2 := t2.makeSIt()
+	it2 := t2.makeUIt()
 	res2, _, _ := it2.Next((check))
 	assert.Equal(t, r1, res2.Id)
-	it1 := t1.makeSIt()
+	it1 := t1.makeUIt()
 	_, _, err := it1.Next(check)
 	assert.Equal(t, data.ErrTraLockTimeout, err)
 }
@@ -537,7 +533,7 @@ func TestT6(t *testing.T) {
 	t1.doBegin()
 	r1 := t1.doI()
 	t1.doEos()
-	itU := t1.makeSIt()
+	itU := t1.makeUIt()
 	_, ok, _ := itU.Next(check)
 	assert.True(t, ok)
 	it := t1.makeIt()

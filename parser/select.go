@@ -154,7 +154,7 @@ func createAndFillTempTable(
 	tempTable := data.Tables[name]
 	table := data.Tables[query.from]
 
-	it := table.NewIterator(query.BaseData(), forUpdate == FOR, true)
+	it := table.NewIterator(query.BaseData(), forUpdate == FOR)
 	for {
 		tuple, ok, err := it.Next(func(data []Value) (bool, error) {
 			if whereExecutionContext != -1 {
