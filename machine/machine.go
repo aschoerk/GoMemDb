@@ -102,6 +102,10 @@ func ReturnIfNotEqualZero(m *Machine) error {
 	if res.(int) != 0 {
 		m.s.Push(res)
 		m.ix = len(m.commands)
+	} else {
+		if m.ix == len(m.commands) {
+			m.s.Push(0)
+		}
 	}
 	return nil
 }
@@ -115,17 +119,21 @@ func ReturnInverseIfNotEqualZero(m *Machine) error {
 	if i != 0 {
 		m.s.Push(-i)
 		m.ix = len(m.commands)
+	} else {
+		if m.ix == len(m.commands) {
+			m.s.Push(0)
+		}
 	}
 	return nil
 }
 
-func (m *Machine) Execute(placeHolders []Value, tuple []Value, record2 []Value) (Value, error) {
+func (m *Machine) Execute(placeHolders []Value, record1 []Value, record2 []Value) (Value, error) {
 	defer func() {
 		fmt.Println("\n**********************************************")
 	}()
 	m.s.Clear()
 	m.p = placeHolders
-	m.r = tuple
+	m.r = record1
 	m.r2 = record2
 	m.ix = 0
 	fmt.Println("\n**********************************************")

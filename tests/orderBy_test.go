@@ -25,27 +25,37 @@ func TestOrderBy(t *testing.T) {
 		{
 			name:     "Order by id descending",
 			query:    "SELECT name FROM users ORDER BY id DESC",
-			expected: []string{"Charlie", "Alice", "Bob"},
+			expected: []string{"Alice", "Charlie", "Alice", "Bob"},
 		},
 		{
 			name:     "Order by number ascending",
 			query:    "SELECT name FROM users ORDER BY 1 DESC",
-			expected: []string{"Charlie", "Bob", "Alice"},
+			expected: []string{"Charlie", "Bob", "Alice", "Alice"},
 		},
 		{
 			name:     "Order sum of id and name by number ascending",
 			query:    "SELECT '' + id + name FROM users ORDER BY 1 DESC",
-			expected: []string{"3Charlie", "2Alice", "1Bob"},
+			expected: []string{"4Alice", "3Charlie", "2Alice", "1Bob"},
+		},
+		{
+			name:     "Order sum of id and name by number ascending",
+			query:    "SELECT '' + id + name FROM users ORDER BY name DESC, id ASC",
+			expected: []string{"3Charlie", "1Bob", "2Alice", "4Alice"},
+		},
+		{
+			name:     "Order sum of id and name by number ascending",
+			query:    "SELECT '' + id + name FROM users ORDER BY name ASC, id DESC",
+			expected: []string{"4Alice", "2Alice", "1Bob", "3Charlie"},
 		},
 		{
 			name:     "Order by fieldname descending",
 			query:    "SELECT name FROM users ORDER BY name DESC",
-			expected: []string{"Charlie", "Bob", "Alice"},
+			expected: []string{"Charlie", "Bob", "Alice", "Alice"},
 		},
 		{
 			name:     "Order by alias",
 			query:    "SELECT name AS user_name FROM users ORDER BY user_name",
-			expected: []string{"Alice", "Bob", "Charlie"},
+			expected: []string{"Alice", "Alice", "Bob", "Charlie"},
 		},
 	}
 
@@ -88,7 +98,7 @@ func setupTestData(t *testing.T, db *sql.DB) {
 		t.Fatalf("Failed to set up test data: %v", err)
 	}
 	_, err = db.Exec(
-		"INSERT INTO users (name) VALUES ('Bob'), ('Alice'), ('Charlie')",
+		"INSERT INTO users (name) VALUES ('Bob'), ('Alice'), ('Charlie'), ('Alice')",
 	)
 
 	if err != nil {

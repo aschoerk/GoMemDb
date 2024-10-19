@@ -621,7 +621,7 @@ func (t *GoSqlTable) Increment(columnName string) int64 {
 		return 1
 	} else {
 		t.ids[columnName] = id + 1
-		return id
+		return id + 1
 	}
 }
 
