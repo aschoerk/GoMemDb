@@ -17,6 +17,10 @@ type transactionManagerType struct {
 
 var transactionManager = NewTransactionManager()
 
+func InitTransactionManager() {
+	transactionManager = NewTransactionManager()
+}
+
 func NewTransactionManager() *transactionManagerType {
 	res := transactionManagerType{
 		atomic.Int64{},
@@ -46,19 +50,21 @@ func StartTransaction(c *GoSqlConnData) error {
 }
 
 func InitTransaction(conn *GoSqlConnData) {
-	conn.Transaction = &Transaction{NO_TRANSACTION, 0, 0, 0, 0, nil, INITED, conn.DefaultIsolationLevel, conn}
+	conn.Transaction = &Transaction{NO_TRANSACTION, 0, 0, 0, 0, 1000, nil, INITED, conn.DefaultIsolationLevel, conn}
 }
 
 func (t *Transaction) IsStarted() bool {
 	return t.State == STARTED || t.State == ROLLEDBACK
 }
 
+var TRA_LOCK_TIMEOUT = errors.New("Transaction Lock Timeout elapsed")
+
 func startTransactionInternal(t *Transaction) (*Transaction, error) {
 	if t.State == STARTED || t.State == ROLLBACKONLY {
 		return nil, fmt.Errorf("Trying to restart transaction %d", t.Xid)
 	}
 	if t.State == ROLLEDBACK || t.State == COMMITTED {
-		t = &Transaction{NO_TRANSACTION, 0, 0, 0, 0, nil, INITED, t.IsolationLevel, t.Conn}
+		t = &Transaction{NO_TRANSACTION, 0, 0, 0, 0, 1000, nil, INITED, t.IsolationLevel, t.Conn}
 	}
 	var xid int64
 	for {

@@ -24,15 +24,16 @@ const (
 )
 
 type Transaction struct {
-	Xid            int64
-	Cid            int32
-	Started        int64
-	Ended          int64
-	ChangeCount    int64
-	SnapShot       *SnapShot
-	State          TransactionState
-	IsolationLevel TransactionIsolationLevel
-	Conn           *GoSqlConnData
+	Xid             int64
+	Cid             int32
+	Started         int64
+	Ended           int64
+	ChangeCount     int64
+	MaxLockTimeInMs int64
+	SnapShot        *SnapShot
+	State           TransactionState
+	IsolationLevel  TransactionIsolationLevel
+	Conn            *GoSqlConnData
 }
 
 type SnapShot struct {
