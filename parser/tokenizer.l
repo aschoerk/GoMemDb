@@ -140,6 +140,11 @@ INTO { return INTO }
 MOD { return MOD }
 LIKE { return LIKE }
 SET { return SET }
+COMMIT { return COMMIT }
+"BEGIN" { return BEGIN_TOKEN }
+ROLLBACK { return ROLLBACK }
+TRANSACTION { return TRANSACTION }
+
 
 <BETWEEN_CONDITION>AND    { 
     if yy.Context.between_flag {

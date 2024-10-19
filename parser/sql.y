@@ -53,7 +53,8 @@ type yyLexerEx interface {
 // DML
 %token SELECT DISTINCT ALL FROM WHERE GROUP BY HAVING ORDER ASC DESC UNION BETWEEN BETWEEN_AND AND IN INSERT UPDATE SET DELETE INTO VALUES
 %token LESS_OR_EQUAL GREATER_OR_EQUAL NOT_EQUAL PLUS MINUS LESS EQUAL GREATER MULTIPLY DIVIDE AND OR LIKE MOD
-%token NUM ISNULL ISNOTNULL NULL IS
+%token NUM ISNULL ISNOTNULL NULL IS 
+%token <int> BEGIN_TOKEN COMMIT ROLLBACK TRANSACTION AUTOCOMMIT ON OFF
 %token <int> DECIMAL_INTEGER_NUMBER POSITIVE_DECIMAL_INTEGER_NUMBER 
 %token <string> IDENTIFIER PLACEHOLDER STRING
 %token <float64> FLOATING_POINT_NUMBER
@@ -83,7 +84,7 @@ type yyLexerEx interface {
 %type <int>  opt_column_length column_specification2 if_exists_predicate distinct_all
 %type <ptr> const_expression like_term 
 %type <termList> term_list
-%type <parseResult> statement ddl_statement dml_statement create_table select insert update delete
+%type <parseResult> statement ddl_statement dml_statement create_table select insert update delete connection_level
 %type <selectList> select_list
 %type <selectListEntry> select_list_entry
 %type <string> select_list_entry_alias
@@ -155,6 +156,26 @@ dml_statement:
             { $$ = $1 }
         | delete
             { $$ = $1 }
+        | connection_level
+            { $$ = $1}
+
+connection_level:
+      BEGIN_TOKEN
+      { $$ = NewConnectionLevelRequest($1,-1)}
+    | BEGIN_TOKEN TRANSACTION
+      { $$ = NewConnectionLevelRequest($1,-1)}
+    | COMMIT
+      { $$ = NewConnectionLevelRequest($1,-1)}
+    | COMMIT TRANSACTION
+      { $$ = NewConnectionLevelRequest($1,-1)}
+    | ROLLBACK
+      { $$ = NewConnectionLevelRequest($1,-1)}
+    | ROLLBACK TRANSACTION
+      { $$ = NewConnectionLevelRequest($1,-1)}
+    | SET AUTOCOMMIT ON
+      { $$ = NewConnectionLevelRequest($2,$3)}
+    | SET AUTOCOMMIT OFF
+      { $$ = NewConnectionLevelRequest($2,$3)}
 
 delete: DELETE FROM from_spec opt_where
     { $$ = &GoSqlDeleteRequest{NewStatementBaseData(),$3, $4}}            

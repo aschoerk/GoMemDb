@@ -31,7 +31,7 @@ func (m *Machine) AddCommandBeforeLast(c Command) {
 func (m *Machine) ReturnPlaceHolder(ix int) (Value, error) {
 
 	if len(m.p) <= ix || ix < 0 {
-		return -1, errors.New("Invalid ix")
+		return -1, errors.New("invalid ix")
 	}
 	return (m.p)[ix], nil
 }
@@ -39,7 +39,7 @@ func (m *Machine) ReturnPlaceHolder(ix int) (Value, error) {
 func AddPushPlaceHolder(m *Machine, ix int) {
 	m.AddCommand(func(m *Machine) error {
 		if ix < 0 || ix >= len(m.p) {
-			return errors.New(fmt.Sprintf("Invalid placeholder ix: %d", ix))
+			return fmt.Errorf("invalid placeholder ix: %d", ix)
 		}
 		m.s.Push((m.p)[ix])
 		return nil
@@ -49,7 +49,7 @@ func AddPushPlaceHolder(m *Machine, ix int) {
 func AddPushAttribute(m *Machine, ix int) {
 	m.AddCommand(func(m *Machine) error {
 		if ix < 0 || ix >= len(m.r) {
-			return errors.New(fmt.Sprintf("Invalid tuple ix: %d", ix))
+			return fmt.Errorf("invalid tuple ix: %d", ix)
 		}
 		m.s.Push((m.r)[ix])
 		return nil
@@ -59,7 +59,7 @@ func AddPushAttribute(m *Machine, ix int) {
 func AddPushAttribute2(m *Machine, ix int) {
 	m.AddCommand(func(m *Machine) error {
 		if ix < 0 || ix >= len(m.r2) {
-			return errors.New(fmt.Sprintf("Invalid record2 ix: %d", ix))
+			return fmt.Errorf("invalid record2 ix: %d", ix)
 		}
 		m.s.Push((m.r2)[ix])
 		return nil
@@ -97,7 +97,7 @@ func getFunctionName(i interface{}) string {
 func ReturnIfNotEqualZero(m *Machine) error {
 	res, ok := m.s.Pop()
 	if !ok {
-		errors.New("Empty Stack")
+		return errors.New("empty stack")
 	}
 	if res.(int) != 0 {
 		m.s.Push(res)
@@ -113,7 +113,7 @@ func ReturnIfNotEqualZero(m *Machine) error {
 func ReturnInverseIfNotEqualZero(m *Machine) error {
 	res, ok := m.s.Pop()
 	if !ok {
-		errors.New("Empty Stack")
+		return errors.New("empty stack")
 	}
 	i := res.(int)
 	if i != 0 {

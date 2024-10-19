@@ -13,7 +13,7 @@ func ConvertTimeToInt64(m *Machine) error {
 
 	// Check if the dereferenced value is a time.Time
 	if v.Type() != reflect.TypeOf(time.Time{}) {
-		return errors.New("Expected time")
+		return errors.New("expected time")
 	}
 
 	// Convert time.Time to int64 (Unix timestamp)
@@ -34,7 +34,7 @@ func ConvertTimeToFloat64(m *Machine) error {
 
 	// Check if the dereferenced value is a time.Time
 	if v.Type() != reflect.TypeOf(time.Time{}) {
-		return errors.New("Expected time")
+		return errors.New("expected time")
 	}
 
 	// Convert time.Time to float64 (Unix timestamp with fractional seconds)
@@ -56,7 +56,7 @@ func ConvertTimeToString(m *Machine) error {
 
 	// Check if the dereferenced value is a time.Time
 	if v.Type() != reflect.TypeOf(time.Time{}) {
-		return errors.New("Expected time")
+		return errors.New("expected time")
 	}
 
 	// Convert time.Time to string
@@ -162,7 +162,7 @@ func AddSecondsToTime(m *Machine) error {
 	}
 
 	// Pop the first element (seconds to add)
-	secondsPtr, ok := m.s.Pop()
+	secondsPtr, _ := m.s.Pop()
 
 	seconds, ok := secondsPtr.(int)
 	if !ok {
@@ -170,7 +170,7 @@ func AddSecondsToTime(m *Machine) error {
 	}
 
 	// Pop the second element (time.Time)
-	timePtr, ok := m.s.Pop()
+	timePtr, _ := m.s.Pop()
 
 	timeVal, ok := timePtr.(*time.Time)
 	if !ok {

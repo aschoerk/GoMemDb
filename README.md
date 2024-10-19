@@ -8,13 +8,14 @@ A project allowing me to use go in a not so simple environment. The idea is to i
 ** need to do locking using fields in Tuple, no extra Lockmanager-Lockstorage - xmax is used for that, if tra is in state isStarted, the record is locked
 ** need to keep track of changed records during transaction -> not necessary, use handling of postgres here
 * Transactions plus MVCC plus Multiuser-Capability <-- done on module - level
-** need to implement the sql-statements (BEGIN, COMMIT, ROLLBACK, SET AUTOCOMMIT, SET ROLLBACKONLY) to be able to control transactions via statements
+** need to implement the sql-statements (BEGIN, COMMIT, ROLLBACK, SET AUTOCOMMIT, SET ROLLBACKONLY) to be able to control transactions via statements <<- started
 * Backing of Memory-Changes via persistent storage
 * AGGREGATE FUNCTIONS
 * GROUP BY
 * HAVING
 * NULL handling
 * JOINS
+* SAVEPOINTs
 
 ### Next issues
 

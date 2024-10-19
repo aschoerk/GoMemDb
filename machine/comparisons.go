@@ -6,7 +6,7 @@ import (
 )
 
 func typeError() error {
-	return errors.New("Impossible Type Conversion")
+	return errors.New("impossible type conversion")
 }
 
 // Boolean comparisons

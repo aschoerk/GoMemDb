@@ -28,6 +28,18 @@ func NewUpdateRequest(tableName string, updates []GoSqlUpdateSpec, where *GoSqlT
 	}
 }
 
+type GoSqlConnectionLevelRequest struct {
+	data.BaseStatement
+	token1, token2 int
+}
+
+func NewConnectionLevelRequest(token1 int, token2 int) *GoSqlConnectionLevelRequest {
+	return &GoSqlConnectionLevelRequest{
+		data.BaseStatement{
+			data.StatementBaseData{}},
+		token1, token2}
+}
+
 type GoSqlDeleteRequest struct {
 	data.BaseStatement
 	from  string
@@ -60,6 +72,14 @@ func (r *GoSqlUpdateRequest) initStruct() error {
 	return nil
 }
 
+func (r *GoSqlConnectionLevelRequest) NumInput() int {
+	return 0
+}
+
+func (r *GoSqlConnectionLevelRequest) Exec(args []Value) (Result, error) {
+	return GoSqlResult{-1, 0}, nil
+}
+
 func (r *GoSqlUpdateRequest) NumInput() int {
 	err := r.initStruct()
 	if err != nil {
@@ -75,7 +95,7 @@ func (r *GoSqlUpdateRequest) Exec(args []Value) (Result, error) {
 		return nil, err
 	}
 	if len(r.placeHolders) != len(args) {
-		return nil, fmt.Errorf("Expected %d placeholders, but got %d args", len(r.placeHolders), len(args))
+		return nil, fmt.Errorf("expected %d placeholders, but got %d args", len(r.placeHolders), len(args))
 	}
 	placeHolderOffset := 0
 	commands, err := Terms2Commands(r.terms, args, r.table, &placeHolderOffset)
