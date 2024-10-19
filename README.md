@@ -3,11 +3,12 @@ A project allowing me to use go in a not so simple environment. The idea is to i
 * INSERT/SELECT (only WHERE) on single tables existing of [][]interface{}
 * creation of tempor
 * UPDATE/DELETE
-* Remote Access via Rest, plus database/sql/driver **** currently working on that 
-** need to change xid assignment to only at moment of changes
-** need to do locking using fields in Tuple, no extra Lockmanager-Lockstorage
-** need to keep track of changed records during transaction
-* Transactions plus MVCC plus Multiuser-Capability
+* Remote Access via Rest, plus database/sql/driver --> there is a second driver which can be used as client. Use server_test to start a Rest - Server 
+** need to change xid assignment to only at moment of changes <-- StartTransaction does that now. 
+** need to do locking using fields in Tuple, no extra Lockmanager-Lockstorage - xmax is used for that, if tra is in state isStarted, the record is locked
+** need to keep track of changed records during transaction -> not necessary, use handling of postgres here
+* Transactions plus MVCC plus Multiuser-Capability <-- done on module - level
+** need to implement the sql-statements (BEGIN, COMMIT, ROLLBACK, SET AUTOCOMMIT, SET ROLLBACKONLY) to be able to control transactions via statements
 * Backing of Memory-Changes via persistent storage
 * AGGREGATE FUNCTIONS
 * GROUP BY
