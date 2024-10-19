@@ -57,11 +57,11 @@ func (t *Transaction) IsStarted() bool {
 	return t.State == STARTED || t.State == ROLLEDBACK
 }
 
-var TRA_LOCK_TIMEOUT = errors.New("Transaction Lock Timeout elapsed")
+var ErrTraLockTimeout = errors.New("transaction Lock Timeout elapsed")
 
 func startTransactionInternal(t *Transaction) (*Transaction, error) {
 	if t.State == STARTED || t.State == ROLLBACKONLY {
-		return nil, fmt.Errorf("Trying to restart transaction %d", t.Xid)
+		return nil, fmt.Errorf("trying to restart transaction %d", t.Xid)
 	}
 	if t.State == ROLLEDBACK || t.State == COMMITTED {
 		t = &Transaction{NO_TRANSACTION, 0, 0, 0, 0, 1000, nil, INITED, t.IsolationLevel, t.Conn}
@@ -106,13 +106,13 @@ func EndStatement(baseData *StatementBaseData) error {
 func EndTransaction(conn *GoSqlConnData, newState TransactionState) error {
 	transaction := conn.Transaction
 	if transaction == nil {
-		return errors.New("EndTransaction called with nil transaction")
+		return errors.New("endTransaction called with nil transaction")
 	}
 	if newState != ROLLEDBACK && newState != COMMITTED {
-		return fmt.Errorf("Trying to end transaction %d into state %d", transaction.Xid, newState)
+		return fmt.Errorf("trying to end transaction %d into state %d", transaction.Xid, newState)
 	}
 	if transaction.State != STARTED && transaction.State != ROLLBACKONLY {
-		return fmt.Errorf("Trying to end transaction %d in state %d", transaction.Xid, transaction.State)
+		return fmt.Errorf("trying to end transaction %d in state %d", transaction.Xid, transaction.State)
 	}
 	rollbackInsteadOfCommit := newState == COMMITTED && transaction.State == ROLLBACKONLY
 	if rollbackInsteadOfCommit {
@@ -130,7 +130,7 @@ func EndTransaction(conn *GoSqlConnData, newState TransactionState) error {
 				tra, ok := transactionManager.transactions[actXid]
 				if !ok {
 					if actXid != transactionManager.nextXid.Load() {
-						return fmt.Errorf("Expected not found transaction %d to be behind currently executed", actXid)
+						return fmt.Errorf("expected not found transaction %d to be behind currently executed", actXid)
 					} else {
 						transactionManager.lowestRunningXid.CompareAndSwap(transaction.Xid, NO_TRANSACTION)
 						break
@@ -143,12 +143,12 @@ func EndTransaction(conn *GoSqlConnData, newState TransactionState) error {
 				}
 			}
 		} else {
-			return fmt.Errorf("Stopping of transaction %d done in more than one thread", transaction.Xid)
+			return fmt.Errorf("stopping of transaction %d done in more than one thread", transaction.Xid)
 		}
 	}
 	conn.Transaction = nil
 	if rollbackInsteadOfCommit {
-		return fmt.Errorf("Rolled back transaction because of rollback only")
+		return fmt.Errorf("rolled back transaction because of rollback only")
 	} else {
 		return nil
 	}

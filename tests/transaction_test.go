@@ -291,7 +291,7 @@ func TestNX(t *testing.T) {
 	assert.Equal(t, r1, res2.Id)
 	it1 := t1.makeSIt()
 	_, _, err := it1.Next(check)
-	assert.Equal(t, data.TRA_LOCK_TIMEOUT, err)
+	assert.Equal(t, data.ErrTraLockTimeout, err)
 }
 
 func TestN81(t *testing.T) {

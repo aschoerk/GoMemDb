@@ -2,7 +2,6 @@ package data
 
 import (
 	"database/sql/driver"
-	. "database/sql/driver"
 	"errors"
 	"fmt"
 	"slices"
@@ -33,17 +32,17 @@ type GoSqlColumn struct {
 }
 
 type TableIterator interface {
-	Next(func([]Value) (bool, error)) (Tuple, bool, error)
+	Next(func([]driver.Value) (bool, error)) (Tuple, bool, error)
 }
 
 type Table interface {
 	Name() string
 	Columns() []GoSqlColumn
-	Data() *[][]Value
+	Data() *[][]driver.Value
 	NewIterator(baseData *StatementBaseData, forChange bool, forSelect bool) TableIterator
 	FindColumn(name string) (int, error)
-	Insert(recordValues []Value, conn *GoSqlConnData) int64
-	Update(recordId int64, recordValues []Value, conn *GoSqlConnData) bool
+	Insert(recordValues []driver.Value, conn *GoSqlConnData) int64
+	Update(recordId int64, recordValues []driver.Value, conn *GoSqlConnData) bool
 	Delete(recordId int64, conn *GoSqlConnData) bool
 }
 
@@ -84,7 +83,7 @@ type TempTableIterator struct {
 	ix    int
 }
 
-func (it *TempTableIterator) Next(check func([]Value) (bool, error)) (Tuple, bool, error) {
+func (it *TempTableIterator) Next(check func([]driver.Value) (bool, error)) (Tuple, bool, error) {
 	for {
 		// ignore snapshot, just check if xids match
 		if len(it.table.Tempdata) < it.ix {
@@ -127,19 +126,19 @@ func (t *BaseTable) Columns() []GoSqlColumn {
 
 type TempTable struct {
 	BaseTable
-	Tempdata [][]Value
+	Tempdata [][]driver.Value
 }
 
-func (t *TempTable) Data() *[][]Value {
+func (t *TempTable) Data() *[][]driver.Value {
 	return &t.Tempdata
 }
 
-func (t *GoSqlTable) Data() *[][]Value {
+func (t *GoSqlTable) Data() *[][]driver.Value {
 	return nil
 }
 
 func NewTempTable(name string, columns []GoSqlColumn) Table {
-	res := &TempTable{BaseTable{name, columns}, [][]Value{}}
+	res := &TempTable{BaseTable{name, columns}, [][]driver.Value{}}
 	tablesMu.Lock()
 	defer tablesMu.Unlock()
 	Tables[name] = res
@@ -183,9 +182,9 @@ func (t *GoSqlTable) NewIterator(baseData *StatementBaseData, forChange bool, fo
 	return &res
 }
 
-var SERIALIZATION_ERROR error = errors.New("SerializationError")
+var ErrTraSerialization error = errors.New("SerializationError")
 
-var WAIT_FOR_TRA_ERROR error = errors.New("WaitforTra")
+var ErrDoWaitForTra error = errors.New("WaitforTra")
 
 func (ti *GoSqlTableIterator) isVisible(xid int64) bool {
 	return xid < ti.SnapShot.xmax && !ti.isRunning(xid) && !ti.isRolledback(xid)
@@ -215,7 +214,7 @@ func (ti *GoSqlTableIterator) isRunning(xid int64) bool {
 
 func errorIfUpdate(forUpdate bool) error {
 	if forUpdate {
-		return SERIALIZATION_ERROR
+		return ErrTraSerialization
 	} else {
 		return nil
 	}
@@ -223,7 +222,7 @@ func errorIfUpdate(forUpdate bool) error {
 
 func waitIfUpdate(forUpdate bool) error {
 	if forUpdate {
-		return WAIT_FOR_TRA_ERROR
+		return ErrDoWaitForTra
 	} else {
 		return nil
 	}
@@ -250,31 +249,31 @@ func (ti *GoSqlTableIterator) removeRolledBack(tuple *VersionedTuple) bool {
 	}
 }
 
-func foundVersion(tuple *TupleVersion) (bool, bool, error, *TupleVersion, int64) {
-	return true, true, nil, tuple, -1
+func foundVersion(tuple *TupleVersion) (bool, bool, *TupleVersion, int64, error) {
+	return true, true, tuple, -1, nil
 }
 
-func notFoundVersion() (bool, bool, error, *TupleVersion, int64) {
-	return true, false, nil, nil, -1
+func notFoundVersion() (bool, bool, *TupleVersion, int64, error) {
+	return true, false, nil, -1, nil
 }
 
-func notDone() (bool, bool, error, *TupleVersion, int64) {
-	return false, false, nil, nil, -1
+func notDone() (bool, bool, *TupleVersion, int64, error) {
+	return false, false, nil, -1, nil
 }
 
-func encountered(err error) (bool, bool, error, *TupleVersion, int64) {
-	return true, false, err, nil, -1
+func encountered(err error) (bool, bool, *TupleVersion, int64, error) {
+	return true, false, nil, -1, err
 }
 
-func unvisibleOrError(forUpdate bool) (bool, bool, error, *TupleVersion, int64) {
-	return true, false, errorIfUpdate(forUpdate), nil, -1
+func unvisibleOrError(forUpdate bool) (bool, bool, *TupleVersion, int64, error) {
+	return true, false, nil, -1, errorIfUpdate(forUpdate)
 }
 
-func visibleOrError(forUpdate bool, version *TupleVersion) (bool, bool, error, *TupleVersion, int64) {
-	return true, true, errorIfUpdate(forUpdate), version, -1
+func visibleOrError(forUpdate bool, version *TupleVersion) (bool, bool, *TupleVersion, int64, error) {
+	return true, true, version, -1, errorIfUpdate(forUpdate)
 }
 
-func (ti *GoSqlTableIterator) isVisibleTupleNoTraEffectVariousSingleVersionCases(tuple *VersionedTuple, forUpdate bool, offset int) (bool, bool, error, *TupleVersion, int64) {
+func (ti *GoSqlTableIterator) isVisibleTupleNoTraEffectVariousSingleVersionCases(tuple *VersionedTuple, forUpdate bool, offset int) (bool, bool, *TupleVersion, int64, error) {
 	// cases n1
 	traXid, _, actVersion, s := ti.initCaseHandling(tuple, offset)
 	if !ti.isVisible(actVersion.xmin) || traXid != -1 && (actVersion.xmin == traXid || actVersion.xmax == traXid) {
@@ -282,7 +281,7 @@ func (ti *GoSqlTableIterator) isVisibleTupleNoTraEffectVariousSingleVersionCases
 	} else {
 		if actVersion.xmax == 0 {
 			if offset != 0 {
-				return encountered(errors.New("Illegal version with xmax 0 at offset > 0"))
+				return encountered(errors.New("illegal version with xmax 0 at offset > 0"))
 			}
 			return foundVersion(actVersion)
 		}
@@ -290,11 +289,11 @@ func (ti *GoSqlTableIterator) isVisibleTupleNoTraEffectVariousSingleVersionCases
 			if ti.isRolledback(actVersion.xmax) {
 				return foundVersion(actVersion)
 			} else if ti.isRunning(actVersion.xmax) || actVersion.xmax >= s.xmax {
-				return true, true, waitIfUpdate(forUpdate), actVersion, actVersion.xmax
+				return true, true, actVersion, actVersion.xmax, waitIfUpdate(forUpdate)
 			} else if ti.isCommitted(actVersion.xmax) {
 				return visibleOrError(forUpdate, actVersion)
 			} else {
-				return encountered(errors.New("Invalid state for actVersion.xmax"))
+				return encountered(errors.New("invalid state for actVersion.xmax"))
 			}
 		} else {
 			if actVersion.flags&FOR_UPDATE_FLAG == 0 {
@@ -312,19 +311,19 @@ func (ti *GoSqlTableIterator) isVisibleTupleNoTraEffectVariousSingleVersionCases
 					return visibleOrError(forUpdate, actVersion)
 				}
 			}
-			return true, false, errors.New("Should never reach this"), nil, -1
+			return encountered(errors.New("should never reach this"))
 		}
 	}
 }
 
-func (ti *GoSqlTableIterator) isVisibleTupleNoTraEffectCurrentNotVisibleCases(tuple *VersionedTuple, forUpdate bool, offset int) (bool, bool, error, *TupleVersion, int64) {
+func (ti *GoSqlTableIterator) isVisibleTupleNoTraEffectCurrentNotVisibleCases(tuple *VersionedTuple, forUpdate bool, offset int) (bool, bool, *TupleVersion, int64, error) {
 	traXid, actVersionOffset, actVersion, _ := ti.initCaseHandling(tuple, offset)
 	if traXid != -1 && (actVersion.xmin == traXid || actVersion.xmax == traXid) {
 		return notDone()
 	}
 	if ti.isRolledback(actVersion.xmin) {
 		if offset != 0 {
-			return encountered(errors.New("Illegal version xmin rolled back at offset > 0"))
+			return encountered(errors.New("illegal version xmin rolled back at offset > 0"))
 		}
 		if ti.removeRolledBack(tuple) {
 			return ti.isVisibleTupleNoTraEffect(tuple, forUpdate, 0)
@@ -332,14 +331,14 @@ func (ti *GoSqlTableIterator) isVisibleTupleNoTraEffectCurrentNotVisibleCases(tu
 			return notFoundVersion()
 		}
 	} else if ti.isRunning(actVersion.xmax) {
-		done, visible, err, tuple, _ := ti.isVisibleTupleNoTraEffect(tuple, forUpdate, offset+1)
+		done, visible, tuple, _, err := ti.isVisibleTupleNoTraEffect(tuple, forUpdate, offset+1)
 		if !done {
 			return encountered(errors.New("if once decided isVisibleTupleNoTraEffect, it should be capable to handle it"))
 		}
 		if err != nil || !visible {
-			return true, false, err, nil, -1
+			return encountered(err)
 		}
-		return true, true, waitIfUpdate(forUpdate), tuple, actVersion.xmax
+		return true, true, tuple, actVersion.xmax, waitIfUpdate(forUpdate)
 	} else {
 		for i := actVersionOffset - 1; i >= 0; i-- {
 			followingVersion := tuple.Versions[i]
@@ -352,19 +351,19 @@ func (ti *GoSqlTableIterator) isVisibleTupleNoTraEffectCurrentNotVisibleCases(tu
 
 }
 
-func (ti *GoSqlTableIterator) isVisibleTupleNoTraEffect(tuple *VersionedTuple, forUpdate bool, offset int) (bool, bool, error, *TupleVersion, int64) {
-	done, visible, error, tupleVersion, contendingTra := ti.isVisibleTupleNoTraEffectVariousSingleVersionCases(tuple, forUpdate, offset)
+func (ti *GoSqlTableIterator) isVisibleTupleNoTraEffect(tuple *VersionedTuple, forUpdate bool, offset int) (bool, bool, *TupleVersion, int64, error) {
+	done, visible, tupleVersion, contendingTra, error := ti.isVisibleTupleNoTraEffectVariousSingleVersionCases(tuple, forUpdate, offset)
 	if done {
-		return done, visible, error, tupleVersion, contendingTra
+		return done, visible, tupleVersion, contendingTra, error
 	} else {
 		return ti.isVisibleTupleNoTraEffectCurrentNotVisibleCases(tuple, forUpdate, offset)
 	}
 }
 
-func (ti *GoSqlTableIterator) isVisibleTupleWithTraEffectStartingWithXmax0(tuple *VersionedTuple, forUpdate bool) (bool, bool, error, *TupleVersion, int64) {
+func (ti *GoSqlTableIterator) isVisibleTupleWithTraEffectStartingWithXmax0(tuple *VersionedTuple) (bool, bool, *TupleVersion, int64, error) {
 	traXid, actVersionOffset, actVersion, s := ti.initCaseHandling(tuple, 0)
 	if traXid < 0 {
-		return encountered(errors.New("Expected transaction do be active in isVisibleTupleWithTraEffect "))
+		return encountered(errors.New("expected transaction do be active in isVisibleTupleWithTraEffect "))
 	}
 	if actVersion.xmin != traXid || actVersion.xmax != 0 {
 		return notDone()
@@ -377,7 +376,7 @@ func (ti *GoSqlTableIterator) isVisibleTupleWithTraEffectStartingWithXmax0(tuple
 			// case t21
 			actVersionOffset--
 			if actVersionOffset < 0 {
-				return true, false, nil, nil, -1
+				return notFoundVersion()
 			}
 			actVersion = &tuple.Versions[actVersionOffset]
 			if actVersion.xmax != traXid {
@@ -399,7 +398,7 @@ func (ti *GoSqlTableIterator) isVisibleTupleWithTraEffectStartingWithXmax0(tuple
 		for {
 			// case t22
 			if ti.isRolledback(actVersion.xmin) {
-				return encountered(fmt.Errorf("Did transaction %d on rolledback tra: %d", traXid, actVersion.xmin))
+				return encountered(fmt.Errorf("did transaction %d on rolledback tra: %d", traXid, actVersion.xmin))
 			}
 			if ti.isVisible(actVersion.xmin) {
 				return foundVersion(actVersion)
@@ -413,14 +412,14 @@ func (ti *GoSqlTableIterator) isVisibleTupleWithTraEffectStartingWithXmax0(tuple
 	}
 }
 
-func (ti *GoSqlTableIterator) isVisibleTupleWithTraEffectStartingWithXmaxTraXminTra(tuple *VersionedTuple, forUpdate bool) (bool, bool, error, *TupleVersion, int64) {
+func (ti *GoSqlTableIterator) isVisibleTupleWithTraEffectStartingWithXmaxTraXminTra(tuple *VersionedTuple) (bool, bool, *TupleVersion, int64, error) {
 	traXid, actVersionOffset, actVersion, s := ti.initCaseHandling(tuple, 0)
 	if traXid < 0 {
-		return encountered(errors.New("Expected transaction do be active in isVisibleTupleWithTraEffect "))
+		return encountered(errors.New("expected transaction do be active in isVisibleTupleWithTraEffect "))
 	}
 	if actVersion.xmax != traXid {
 		// case t7
-		return encountered(errors.New("Record changed in current running transaction (xmin) also change by other transaction (xmax) "))
+		return encountered(errors.New("record changed in current running transaction (xmin) also change by other transaction (xmax) "))
 	}
 	if actVersion.xmin != traXid {
 		return notDone()
@@ -463,10 +462,10 @@ func (ti *GoSqlTableIterator) isVisibleTupleWithTraEffectStartingWithXmaxTraXmin
 		}
 	}
 }
-func (ti *GoSqlTableIterator) isVisibleTupleWithTraEffectStartingWithXmaxTraXminNotTra(tuple *VersionedTuple, forUpdate bool) (bool, bool, error, *TupleVersion, int64) {
+func (ti *GoSqlTableIterator) isVisibleTupleWithTraEffectStartingWithXmaxTraXminNotTra(tuple *VersionedTuple) (bool, bool, *TupleVersion, int64, error) {
 	traXid, actVersionOffset, actVersion, s := ti.initCaseHandling(tuple, 0)
 	if traXid < 0 {
-		return encountered(errors.New("Expected transaction do be active in isVisibleTupleWithTraEffect "))
+		return encountered(errors.New("expected transaction do be active in isVisibleTupleWithTraEffect "))
 	}
 	if actVersion.xmin == traXid {
 		// case t9
@@ -492,37 +491,37 @@ func (ti *GoSqlTableIterator) isVisibleTupleWithTraEffectStartingWithXmaxTraXmin
 	}
 }
 
-func (ti *GoSqlTableIterator) isVisibleTupleWithTraEffect(tuple *VersionedTuple, forUpdate bool) (bool, bool, error, *TupleVersion, int64) {
-	done, visible, error, tupleVersion, contendingTra := ti.isVisibleTupleWithTraEffectStartingWithXmax0(tuple, forUpdate)
+func (ti *GoSqlTableIterator) isVisibleTupleWithTraEffect(tuple *VersionedTuple) (bool, bool, *TupleVersion, int64, error) {
+	done, visible, error, tupleVersion, contendingTra := ti.isVisibleTupleWithTraEffectStartingWithXmax0(tuple)
 	if !done {
-		done, visible, error, tupleVersion, contendingTra = ti.isVisibleTupleWithTraEffectStartingWithXmaxTraXminTra(tuple, forUpdate)
+		done, visible, error, tupleVersion, contendingTra = ti.isVisibleTupleWithTraEffectStartingWithXmaxTraXminTra(tuple)
 		if !done {
-			done, visible, error, tupleVersion, contendingTra = ti.isVisibleTupleWithTraEffectStartingWithXmaxTraXminNotTra(tuple, forUpdate)
+			done, visible, error, tupleVersion, contendingTra = ti.isVisibleTupleWithTraEffectStartingWithXmaxTraXminNotTra(tuple)
 		}
 	}
 	return done, visible, error, tupleVersion, contendingTra
 }
 
-func (ti *GoSqlTableIterator) isVisibleTuple(tuple *VersionedTuple, forUpdate bool) (bool, error, *TupleVersion, int64) {
-	done, visible, error, tupleVersion, contendingTra := ti.isVisibleTupleNoTraEffect(tuple, forUpdate, 0)
+func (ti *GoSqlTableIterator) isVisibleTuple(tuple *VersionedTuple, forUpdate bool) (bool, *TupleVersion, int64, error) {
+	done, visible, tupleVersion, contendingTra, error := ti.isVisibleTupleNoTraEffect(tuple, forUpdate, 0)
 	if !done {
-		done, visible, error, tupleVersion, contendingTra = ti.isVisibleTupleWithTraEffect(tuple, forUpdate)
+		done, visible, tupleVersion, contendingTra, error = ti.isVisibleTupleWithTraEffect(tuple)
 	}
 	if !done {
-		return false, errors.New("Case of tuple handling left"), nil, -1
+		return false, nil, -1, errors.New("case of tuple handling left")
 	}
-	return visible, error, tupleVersion, contendingTra
+	return visible, tupleVersion, contendingTra, error
 }
 
-func (ti *GoSqlTableIterator) handleCandidate(check func([]Value) (bool, error), forUpdate bool, tuple *VersionedTuple) (Tuple, bool, error) {
+func (ti *GoSqlTableIterator) handleCandidate(check func([]driver.Value) (bool, error), forUpdate bool, tuple *VersionedTuple) (Tuple, bool, error) {
 	tuple.mu.Lock()
 	defer tuple.mu.Unlock()
 
 	for {
 		waitForTraIfVisibleAndSelected := false
-		visible, err, version, contendingTra := ti.isVisibleTuple(tuple, forUpdate)
+		visible, version, contendingTra, err := ti.isVisibleTuple(tuple, forUpdate)
 		if err != nil {
-			if err == WAIT_FOR_TRA_ERROR {
+			if err == ErrDoWaitForTra {
 				waitForTraIfVisibleAndSelected = true
 			} else {
 				return NULL_TUPLE, false, err
@@ -552,7 +551,7 @@ func (ti *GoSqlTableIterator) handleCandidate(check func([]Value) (bool, error),
 							}
 							if time.Now().UnixMilli() > endT {
 								tuple.mu.Lock()
-								return NULL_TUPLE, false, TRA_LOCK_TIMEOUT
+								return NULL_TUPLE, false, ErrTraLockTimeout
 							}
 							if !tra.IsStarted() {
 								break
@@ -576,7 +575,7 @@ func (ti *GoSqlTableIterator) handleCandidate(check func([]Value) (bool, error),
 	}
 }
 
-func (ti *GoSqlTableIterator) Next(check func([]Value) (bool, error)) (Tuple, bool, error) {
+func (ti *GoSqlTableIterator) Next(check func([]driver.Value) (bool, error)) (Tuple, bool, error) {
 	forUpdate := ti.forChange || ti.forSelect
 	// select versions against snapShot
 	for {
@@ -610,7 +609,7 @@ func (t BaseTable) FindColumn(name string) (int, error) {
 			return ix, nil
 		}
 	}
-	return -1, fmt.Errorf("Did not find column with name %s", name)
+	return -1, fmt.Errorf("did not find column with name %s", name)
 }
 
 func (t *GoSqlTable) Increment(columnName string) int64 {
@@ -626,7 +625,7 @@ func (t *GoSqlTable) Increment(columnName string) int64 {
 	}
 }
 
-func (t *GoSqlTable) Insert(recordValues []Value, conn *GoSqlConnData) int64 {
+func (t *GoSqlTable) Insert(recordValues []driver.Value, conn *GoSqlConnData) int64 {
 	StartTransaction(conn)
 	recordVersion := TupleVersion{recordValues, conn.Transaction.Xid, 0, 0, conn.Transaction.Cid}
 	id := t.NextTupleId.Load()
@@ -657,7 +656,7 @@ func (t *GoSqlTable) Delete(recordId int64, conn *GoSqlConnData) bool {
 	return ok
 }
 
-func (t *GoSqlTable) Update(recordId int64, recordValues []Value, conn *GoSqlConnData) bool {
+func (t *GoSqlTable) Update(recordId int64, recordValues []driver.Value, conn *GoSqlConnData) bool {
 	StartTransaction(conn)
 	t.mu.RLock()
 	defer t.mu.RUnlock()
@@ -678,12 +677,12 @@ func (t *GoSqlTable) Update(recordId int64, recordValues []Value, conn *GoSqlCon
 	return ok
 }
 
-func (t *TempTable) Insert(recordValues []Value, conn *GoSqlConnData) int64 {
+func (t *TempTable) Insert(recordValues []driver.Value, conn *GoSqlConnData) int64 {
 	*t.Data() = append(*t.Data(), recordValues)
 	return -1
 }
 
-func (t *TempTable) Update(recordId int64, recordValues []Value, conn *GoSqlConnData) bool {
+func (t *TempTable) Update(recordId int64, recordValues []driver.Value, conn *GoSqlConnData) bool {
 	panic("not implemented")
 }
 
