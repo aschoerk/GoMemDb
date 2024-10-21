@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"reflect"
 	"runtime"
+
+	"github.com/aschoerk/go-sql-mem/data"
 )
 
 type Command func(m *Machine) error
@@ -15,8 +17,8 @@ type Machine struct {
 	commands []Command
 	s        Stack
 	p        []Value
-	r        []Value
-	r2       []Value
+	r        data.Tuple
+	r2       data.Tuple
 	ix       int
 }
 
@@ -48,20 +50,28 @@ func AddPushPlaceHolder(m *Machine, ix int) {
 
 func AddPushAttribute(m *Machine, ix int) {
 	m.AddCommand(func(m *Machine) error {
-		if ix < 0 || ix >= len(m.r) {
+		if ix < -1 || ix >= len(m.r.Data) {
 			return fmt.Errorf("invalid tuple ix: %d", ix)
 		}
-		m.s.Push((m.r)[ix])
+		if ix == -1 {
+			m.s.Push(m.r.Id)
+		} else {
+			m.s.Push((m.r.Data)[ix])
+		}
 		return nil
 	})
 }
 
 func AddPushAttribute2(m *Machine, ix int) {
 	m.AddCommand(func(m *Machine) error {
-		if ix < 0 || ix >= len(m.r2) {
+		if ix < -1 || ix >= len(m.r2.Data) {
 			return fmt.Errorf("invalid record2 ix: %d", ix)
 		}
-		m.s.Push((m.r2)[ix])
+		if ix == -1 {
+			m.s.Push(m.r2.Id)
+		} else {
+			m.s.Push((m.r2.Data)[ix])
+		}
 		return nil
 	})
 }
@@ -127,7 +137,7 @@ func ReturnInverseIfNotEqualZero(m *Machine) error {
 	return nil
 }
 
-func (m *Machine) Execute(placeHolders []Value, record1 []Value, record2 []Value) (Value, error) {
+func (m *Machine) Execute(placeHolders []Value, record1 data.Tuple, record2 data.Tuple) (Value, error) {
 	defer func() {
 		fmt.Println("\n**********************************************")
 	}()

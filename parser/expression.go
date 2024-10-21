@@ -343,7 +343,7 @@ func calcOperationCommand(opType int, destType int, leftType int, rightType int)
 		return AndBooleans, nil
 	case OR:
 		return OrBooleans, nil
-	case MULTIPLY:
+	case ASTERISK:
 		if destType == INTEGER {
 			return MultiplyInts, nil
 		} else {
@@ -514,7 +514,7 @@ func commonAndDestType(a, b int, opType int) (int, int, int, error) {
 		return comparisonTypes(a, b)
 	case AND, OR:
 		return BOOLEAN, BOOLEAN, BOOLEAN, nil
-	case MULTIPLY, MOD, DIVIDE:
+	case ASTERISK, MOD, DIVIDE:
 		if a == FLOAT || b == FLOAT {
 			return FLOAT, FLOAT, FLOAT, nil
 		} else {

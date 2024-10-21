@@ -75,7 +75,6 @@ func (y *yylexer) Lex(lval *yySymType) int {
 
 %s BETWEEN_CONDITION
 
-NOTATIONS [(),]
 WHITESPACE [ \t]+
 NEWLINE    \r?\n
 IDENTIFIER_REGEX [a-zA-Z][a-zA-Z0-9_]*|\"([^"\n]|\"\")+\" 
@@ -86,8 +85,6 @@ DECIMAL_INTEGER_NUMBER ^[-+]?[0-9]+
 XML_TIMESTAMP ^(-[1-9][0-9]*|[1-9][0-9]{3,}|[0-9]{4})-(1[0-2]|0[1-9])-(3[01]|0[1-9]|[12][0-9])T(2[0-3]|[01][0-9]):([0-5][0-9]):([0-5][0-9])(\.[0-9]+)?(Z|[+-](2[0-3]|[01][0-9]):[0-5][0-9])?$
 
 %%
-
-
 
 CREATE { return CREATE }
 DATABASE { return DATABASE }
@@ -144,6 +141,11 @@ COMMIT { return COMMIT }
 "BEGIN" { return BEGIN_TOKEN }
 ROLLBACK { return ROLLBACK }
 TRANSACTION { return TRANSACTION }
+COUNT { return COUNT }
+SUM { return SUM }
+AVG { return AVG }
+MIN { return MIN }
+MAX { return MAX }
 
 
 <BETWEEN_CONDITION>AND    { 
@@ -155,8 +157,6 @@ TRANSACTION { return TRANSACTION }
         return AND;
     }
 }
-
-{NOTATIONS} { return YYtype(yytext[0]) }
 
 {WHITESPACE}    { /* Explicitly ignore horizontal whitespace */ }
 
@@ -184,9 +184,11 @@ TRANSACTION { return TRANSACTION }
 \<\> { return NOT_EQUAL }
 \+   { return PLUS}
 \-   { return MINUS}
-\*   { return MULTIPLY}
+\*   { return ASTERISK }
 \/   { return DIVIDE }
-
+\(   { return POPEN }
+\)   { return PCLOSE }
+\,   { return KOMMA }
 
 %%
   

@@ -18,6 +18,10 @@ const (
 	DEFAULT_MAX_LENGTH    = 40
 )
 
+var (
+	VersionedRecordId string = "VersionedRecordIdentifier"
+)
+
 var tablesMu sync.Mutex
 
 var NULL_TUPLE = Tuple{-1, nil}

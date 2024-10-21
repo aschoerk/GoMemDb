@@ -13,6 +13,8 @@ import (
     "database/sql/driver"
 )
 
+var YYDebug = 1
+
 type yyLexerEx interface {
 	yyLexer
 	StoreLvals(yySymType)
@@ -48,12 +50,13 @@ type yyLexerEx interface {
 }
 
 // DDL
-%token CREATE DATABASE SCHEMA ALTER TABLE ADD AS IF NOT EXISTS PRIMARY KEY AUTOINCREMENT
+%token CREATE DATABASE SCHEMA ALTER TABLE ADD AS IF NOT EXISTS PRIMARY KEY AUTOINCREMENT POPEN PCLOSE KOMMA
 %token <token> CHAR VARCHAR INTEGER FLOAT TEXT BOOLEAN TIMESTAMP FOR
 // DML
 %token SELECT DISTINCT ALL FROM WHERE GROUP BY HAVING ORDER ASC DESC UNION BETWEEN BETWEEN_AND AND IN INSERT UPDATE SET DELETE INTO VALUES
-%token LESS_OR_EQUAL GREATER_OR_EQUAL NOT_EQUAL PLUS MINUS LESS EQUAL GREATER MULTIPLY DIVIDE AND OR LIKE MOD
+%token LESS_OR_EQUAL GREATER_OR_EQUAL NOT_EQUAL PLUS MINUS LESS EQUAL GREATER ASTERISK DIVIDE AND OR LIKE MOD
 %token NUM ISNULL ISNOTNULL NULL IS 
+%token <token> COUNT SUM AVG MIN MAX
 %token <int> BEGIN_TOKEN COMMIT ROLLBACK TRANSACTION AUTOCOMMIT ON OFF
 %token <int> DECIMAL_INTEGER_NUMBER POSITIVE_DECIMAL_INTEGER_NUMBER 
 %token <string> IDENTIFIER PLACEHOLDER STRING
@@ -71,25 +74,24 @@ type yyLexerEx interface {
 %left LIKE 
 %left BETWEEN BETWEEN_AND
 %left	PLUS MINUS
-%left	MULTIPLY DIVIDE MOD
+%left	ASTERISK DIVIDE MOD
 %left	NEG     /* negation--unary minus */
 
 %type <column> column
 %type <columns> columns
 %type <fieldList> field_list
-%type <valueList> identifier_or_number_list opt_group_by 
 %type <termLists> term_lists
 
-%type <token> column_type 
+%type <token> column_type aggregate_function_name
 %type <int>  opt_column_length column_specification2 if_exists_predicate distinct_all
 %type <ptr> const_expression like_term 
-%type <termList> term_list
+%type <termList> term_list opt_group_by 
 %type <parseResult> statement ddl_statement dml_statement create_table select insert update delete connection_level
 %type <selectList> select_list
 %type <selectListEntry> select_list_entry
 %type <string> select_list_entry_alias
 %type <string> from_spec
-%type <term> term nonboolean_term opt_where opt_having
+%type <term> term nonboolean_term opt_where opt_having aggregate_function_parameter
 %type <orderByEntry> order_by_entry
 %type <orderByEntryList> order_by_entry_list opt_order_by
 %type <token> order_by_direction opt_for_update
@@ -118,12 +120,12 @@ ddl_statement:
 
 
 create_table:
-    CREATE TABLE if_exists_predicate IDENTIFIER '(' columns ')'
+    CREATE TABLE if_exists_predicate IDENTIFIER POPEN columns PCLOSE
         { $$ = &GoSqlCreateTableRequest {NewStatementBaseData(),$3, NewTable($4, $6) } }
 
 columns: column
        { $$ = []GoSqlColumn{$1}}
-    | columns ',' column
+    | columns KOMMA column
       { $$ = append($1, $3) }
 
 column: IDENTIFIER column_type opt_column_length column_specification2
@@ -138,7 +140,7 @@ column_type: INTEGER | TEXT | VARCHAR | BOOLEAN | TIMESTAMP | FLOAT
 
 opt_column_length:
     { $$ = -1 }
-    | '(' POSITIVE_DECIMAL_INTEGER_NUMBER ')' { $$ = $2 }
+    | POPEN POSITIVE_DECIMAL_INTEGER_NUMBER PCLOSE { $$ = $2 }
 
 if_exists_predicate: /* empty */
         { $$ = -1 }
@@ -185,7 +187,7 @@ update: UPDATE IDENTIFIER SET update_specs opt_where
 
 update_specs: update_spec
       { $$ = []GoSqlUpdateSpec{$1}}
-    | update_specs ',' update_spec
+    | update_specs KOMMA update_spec
       { $$ = append($1, $3) }
 
 
@@ -194,19 +196,14 @@ update_spec: IDENTIFIER EQUAL term
 
 
 select: SELECT 
-       { setExtraState(yylex, SELECT)}
           distinct_all select_list
-        { setExtraState(yylex, FROM)}
         FROM from_spec
-        { setExtraState(yylex, WHERE)}         
         opt_where 
-        { setExtraState(yylex, GROUP)}
         opt_group_by 
-        { setExtraState(yylex, HAVING)}
         opt_having
         opt_order_by
         opt_for_update
-  { $$ = &GoSqlSelectRequest { NewStatementBaseData(), $3, $4, $7, $9, $11, $13, $14, $15 }}
+  { $$ = &GoSqlSelectRequest { NewStatementBaseData(), $2, $3, $5, $6, $7, $8, $9, $10 }}
 
 distinct_all: 
    { $$ = ALL }
@@ -218,11 +215,11 @@ distinct_all:
 select_list: 
     select_list_entry
     { $$ = []SelectListEntry{$1}}
-    | select_list ',' select_list_entry
+    | select_list KOMMA select_list_entry
     { $$ = append($1, $3) }
 
 select_list_entry:
-    '*'
+    ASTERISK
     { $$ = NewSelectListEntry(true, nil, "")}
     | term select_list_entry_alias
     { $$ = NewSelectListEntry(false, $1, $2)}
@@ -239,7 +236,7 @@ opt_where:
     { $$ = nil}
   | WHERE term
     { $$ = $2 }
-  
+
 nonboolean_term:   
     const_expression
     { $$ = &GoSqlTerm{-1, nil, nil, $1}}
@@ -247,12 +244,33 @@ nonboolean_term:
     { $$ = &GoSqlTerm{ PLUS, $1, $3, nil }}
   | term MINUS term
     { $$ = &GoSqlTerm{ MINUS, $1, $3, nil }}
-  | term MULTIPLY term
-    { $$ = &GoSqlTerm{ MULTIPLY, $1, $3, nil }}
+  | term ASTERISK term
+    { $$ = &GoSqlTerm{ ASTERISK, $1, $3, nil }}
   | term DIVIDE term
     { $$ = &GoSqlTerm{ DIVIDE, $1, $3, nil }}
   | term MOD term
     { $$ = &GoSqlTerm{ MOD, $1, $3, nil }}
+  |  aggregate_function_name POPEN aggregate_function_parameter PCLOSE
+    { $$ = &GoSqlTerm{$1, $3, nil, nil} }
+
+aggregate_function_name: 
+    COUNT
+    { $$ = $1 }
+  | SUM
+    { $$ = $1 }
+  | AVG
+    { $$ = $1 }
+  | MIN
+    { $$ = $1 }
+  | MAX
+    { $$ = $1 }
+
+
+aggregate_function_parameter:  
+    distinct_all term 
+    { $$ = &GoSqlTerm{$1, $2, nil, nil} }
+  | ASTERISK
+    { $$ = &GoSqlTerm{ASTERISK, nil, nil, nil} }
 
 like_term: 
     PLACEHOLDER 
@@ -272,7 +290,7 @@ term:
     { $$ = &GoSqlTerm{ ISNULL, $1, nil, nil }}
   | term IS NOT NULL
     { $$ = &GoSqlTerm{ ISNOTNULL, $1, nil, nil }}
-  | '(' term ')'
+  | POPEN term PCLOSE
     { $$ = $2 }
   | term LIKE like_term
     {  $$ = &GoSqlTerm { LIKE, $1, &GoSqlTerm { -1, nil, nil, $3 }, nil} }
@@ -290,14 +308,13 @@ term:
     { $$ = &GoSqlTerm{ GREATER_OR_EQUAL, $1, $3, nil }}
   | term NOT_EQUAL term
     { $$ = &GoSqlTerm{ NOT_EQUAL, $1, $3, nil }}
-  | term IN '(' select ')'
+  | term IN POPEN select PCLOSE
     { panic("not implemented")}
-
 
 
 opt_group_by:
   { $$ = nil}
-  | GROUP BY identifier_or_number_list
+  | GROUP BY term_list
   { $$ = $3}
 
 opt_order_by:
@@ -326,17 +343,8 @@ order_by_entry: IDENTIFIER order_by_direction
 
 order_by_entry_list: order_by_entry
         { $$ = []GoSqlOrderBy{$1}}
-  | order_by_entry_list ',' order_by_entry
+  | order_by_entry_list KOMMA order_by_entry
         { $$ = append($1, $3)}
-
-identifier_or_number_list: IDENTIFIER
-        { $$ = []driver.Value{$1} }
-    | POSITIVE_DECIMAL_INTEGER_NUMBER
-        { $$ = []driver.Value{$1} }
-    | identifier_or_number_list ',' IDENTIFIER
-    { $$ = append($1, $3)}
-    | identifier_or_number_list ',' POSITIVE_DECIMAL_INTEGER_NUMBER
-    { $$ = append($1, $3)}
 
 opt_having:
   { $$ = nil}
@@ -346,22 +354,22 @@ opt_having:
 update: UPDATE
     { $$ = nil }
 
-insert: INSERT INTO IDENTIFIER '(' field_list ')' VALUES term_lists
+insert: INSERT INTO IDENTIFIER POPEN field_list PCLOSE VALUES term_lists
   { $$ = NewInsertRequest($3, $5, $8) }
 
-term_lists: '(' term_list ')'
+term_lists: POPEN term_list PCLOSE
    { $$ = [][]*GoSqlTerm{$2} }
-  | term_lists ',' '(' term_list ')'
+  | term_lists KOMMA POPEN term_list PCLOSE
    { $$ = append($1,$4) }
 
 field_list: IDENTIFIER
         { $$ = []string{$1} }
-    | field_list ',' IDENTIFIER
+    | field_list KOMMA IDENTIFIER
         { $$ = append($1, $3) }
 
 term_list: term
     { $$ = []*GoSqlTerm{$1} }
-    | term_list ',' term
+    | term_list KOMMA term
     { $$ = append($1, $3)}
 
 const_expression:
@@ -401,7 +409,7 @@ func getExtraState(yylex yyLexer) int {
 
 
 func Parse(sql string) (driver.Stmt, int) {
-    yyDebug = 1
+    yyDebug = YYDebug
     yyErrorVerbose = true
     lexer := newLexer(bufio.NewReader(strings.NewReader(sql)))
     res := yyNewParser().Parse(lexer)

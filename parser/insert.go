@@ -84,7 +84,7 @@ func (r *GoSqlInsertRequest) Exec(args []Value) (Result, error) {
 				for colix, _ := range tuple {
 					executionContext := insertContext[colix]
 					if executionContext != nil {
-						res, err := executionContext.m.Execute(args, []Value{}, nil)
+						res, err := executionContext.m.Execute(args, NULL_TUPLE, NULL_TUPLE)
 						if err != nil {
 							return nil, err
 						}

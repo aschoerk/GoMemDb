@@ -2,6 +2,7 @@ package parser
 
 import (
 	. "database/sql/driver"
+	"errors"
 	"fmt"
 	"slices"
 
@@ -77,6 +78,35 @@ func (r *GoSqlConnectionLevelRequest) NumInput() int {
 }
 
 func (r *GoSqlConnectionLevelRequest) Exec(args []Value) (Result, error) {
+	switch r.token1 {
+	case BEGIN_TOKEN:
+		if r.Conn.Transaction != nil && r.Conn.Transaction.IsStarted() {
+			return nil, errors.New("transaction already started")
+		}
+		data.InitTransaction(r.Conn)
+	case COMMIT:
+		if r.Conn.Transaction == nil || !r.Conn.Transaction.IsStarted() {
+			return nil, errors.New("transaction is not started")
+		}
+		data.EndTransaction(r.Conn, data.COMMITTED)
+	case ROLLBACK:
+		if r.Conn.Transaction == nil || !r.Conn.Transaction.IsStarted() {
+			return nil, errors.New("transaction is not started")
+		}
+		data.EndTransaction(r.Conn, data.ROLLEDBACK)
+	case AUTOCOMMIT:
+		switch r.token2 {
+		case ON:
+			r.Conn.DoAutoCommit = true
+		case OFF:
+			r.Conn.DoAutoCommit = false
+		default:
+			return nil, fmt.Errorf("unknown token 2 %d for set autocommit", r.token2)
+		}
+	default:
+		return nil, fmt.Errorf("unknown token 1 %d for connection level requests", r.token1)
+
+	}
 	return GoSqlResult{-1, 0}, nil
 }
 
@@ -124,8 +154,8 @@ func (r *GoSqlUpdateRequest) Exec(args []Value) (Result, error) {
 	affectedRows := 0
 	it := r.table.NewIterator(r.BaseData(), true)
 	for {
-		tuple, ok, err := it.Next(func(data []Value) (bool, error) {
-			res, err := whereCommands[0].m.Execute(args, data, nil)
+		tuple, ok, err := it.Next(func(tupleData []Value) (bool, error) {
+			res, err := whereCommands[0].m.Execute(args, data.Tuple{-1, tupleData}, data.NULL_TUPLE)
 			if err != nil {
 				return false, err
 			}
@@ -143,7 +173,7 @@ func (r *GoSqlUpdateRequest) Exec(args []Value) (Result, error) {
 		}
 		affectedRows++
 		for ix, command := range commands {
-			result, err := command.m.Execute(args, tuple.Data, nil)
+			result, err := command.m.Execute(args, tuple, data.NULL_TUPLE)
 			if err != nil {
 				return nil, err
 			}
@@ -186,8 +216,8 @@ func (r *GoSqlDeleteRequest) Exec(args []Value) (Result, error) {
 	todelete := []int64{}
 	it := table.NewIterator(r.BaseData(), true)
 	for {
-		tuple, ok, err := it.Next(func(data []Value) (bool, error) {
-			res, err := whereCommands[0].m.Execute(args, data, nil)
+		tuple, ok, err := it.Next(func(tupleData []Value) (bool, error) {
+			res, err := whereCommands[0].m.Execute(args, data.Tuple{-1, tupleData}, data.NULL_TUPLE)
 			if err != nil {
 				return false, err
 			}
