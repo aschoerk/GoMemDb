@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"slices"
 	"strconv"
+	"time"
 
 	"github.com/aschoerk/go-sql-mem/data"
 	"github.com/google/uuid"
@@ -31,6 +33,12 @@ func (r *GoSqlSelectRequest) Exec(args []Value) (Result, error) {
 type SLName struct {
 	name   string
 	hidden bool
+}
+
+type AggTermsBySelectListEntry struct {
+	sl               *SelectListEntry
+	aggregationTerms []*GoSqlTerm
+	tmpSlNames       []string
 }
 
 func isAggregation(token int) bool {
@@ -60,14 +68,8 @@ func extractAggregation(t *GoSqlTerm) ([]*GoSqlTerm, bool) {
 	return res, usesIdentifiers
 }
 
-type AggregationTerm struct {
-	sl               *SelectListEntry
-	aggregationTerms []*GoSqlTerm
-	tmpSlNames       []string
-}
-
-func collectAggregation(r *GoSqlSelectRequest) ([]AggregationTerm, error) {
-	aggregationsTerms := []AggregationTerm{}
+func collectAggregation(r *GoSqlSelectRequest) ([]AggTermsBySelectListEntry, error) {
+	aggregationsTerms := []AggTermsBySelectListEntry{}
 	for ix, sl := range r.selectList {
 		res, usesIdentifiers := extractAggregation(sl.expression)
 		if res != nil && len(res) > 0 {
@@ -78,9 +80,9 @@ func collectAggregation(r *GoSqlSelectRequest) ([]AggregationTerm, error) {
 			for ix2, _ := range res {
 				names = append(names, fmt.Sprintf("agg%d_%d", ix, ix2))
 			}
-			aggregationsTerms = append(aggregationsTerms, AggregationTerm{&sl, res, names})
+			aggregationsTerms = append(aggregationsTerms, AggTermsBySelectListEntry{&sl, res, names})
 		} else {
-			aggregationsTerms = append(aggregationsTerms, AggregationTerm{&sl, nil, []string{fmt.Sprintf("const_%d", ix)}})
+			aggregationsTerms = append(aggregationsTerms, AggTermsBySelectListEntry{&sl, nil, []string{fmt.Sprintf("const_%d", ix)}})
 		}
 	}
 	return aggregationsTerms, nil
@@ -95,7 +97,7 @@ func collectAggregation(r *GoSqlSelectRequest) ([]AggregationTerm, error) {
 //	arguments of aggregations build the select list for the first temporary table. * stands for id (internal)
 //	the aggregation functions are evaluated over the corresponding select list entry
 //	the term around the aggregation is evaluated to create together with the constant entries the new result of one record.
-func buildAggregationSelectList(r *GoSqlSelectRequest) ([]*GoSqlTerm, []SLName, []AggregationTerm, error) {
+func buildAggregationSelectList(r *GoSqlSelectRequest) ([]*GoSqlTerm, []SLName, []AggTermsBySelectListEntry, error) {
 	aggregationTerms, err := collectAggregation(r)
 	if err != nil {
 		return nil, nil, nil, err
@@ -185,7 +187,7 @@ func (r *GoSqlSelectRequest) Query(args []Value) (Rows, error) {
 		var havingExecutionContext = -1
 		var sizeSelectList = 0
 
-		terms, names, _, err := buildAggregationSelectList(r)
+		terms, names, aggTermsBySelectListEntry, err := buildAggregationSelectList(r)
 		if err != nil {
 			return nil, err
 		}
@@ -218,11 +220,330 @@ func (r *GoSqlSelectRequest) Query(args []Value) (Rows, error) {
 		if err != nil {
 			return nil, err
 		}
-		r.State = data.Executing
-		return &GoSqlRows{r, temptableName, &names, 0}, nil
+
+		if aggTermsBySelectListEntry == nil {
+			r.State = data.Executing
+			return &GoSqlRows{r, temptableName, &names, 0}, nil
+		} else {
+			table := data.Tables[temptableName]
+			terms := []*GoSqlTerm{}
+			names := []SLName{}
+
+			aggTermCount := 0
+			for ix, aTerm := range aggTermsBySelectListEntry {
+				for _, term := range aTerm.aggregationTerms {
+					switch term.operator {
+					case COUNT:
+						err := doCount(table, aggTermCount, term)
+						if err != nil {
+							return nil, err
+						}
+					case SUM:
+						err := doSum(table, aggTermCount, term)
+						if err != nil {
+							return nil, err
+						}
+					case AVG:
+						err := doAvg(table, aggTermCount, term)
+						if err != nil {
+							return nil, err
+						}
+					case MIN:
+						err := doMin(table, aggTermCount, term)
+						if err != nil {
+							return nil, err
+						}
+					case MAX:
+						err := doMax(table, aggTermCount, term)
+						if err != nil {
+							return nil, err
+						}
+					}
+				}
+				terms = append(terms, aTerm.sl.expression)
+				names = append(names, SLName{fmt.Sprintf("%d", ix), false})
+			}
+			evaluationResults, err := Terms2Commands(terms, args, nil, nil) // TODO: fix placeholderhandling when group or agg
+			if err != nil {
+				return nil, err
+			}
+			aggTmpTableName := createTempTable(evaluationResults, &names, len(names))
+			resTuple := []Value{}
+			for _, ev := range evaluationResults {
+				res, err := ev.m.Execute(args, data.NULL_TUPLE, data.NULL_TUPLE)
+				if err != nil {
+					return nil, err
+				}
+				resTuple = append(resTuple, res)
+			}
+			tempTable := data.Tables[aggTmpTableName]
+			*tempTable.Data() = append(*tempTable.Data(), resTuple)
+			r.State = data.Executing
+			return &GoSqlRows{r, aggTmpTableName, &names, 0}, nil
+		}
+
 	} else {
 		return nil, fmt.Errorf("invalid statement state %d, expected 'Parsed'", r.State)
 	}
+}
+
+func iterateAggregation(table data.Table, aggTermCount int, term *GoSqlTerm, aggregate func(value Value) Value) error {
+	it := table.NewIterator(nil, false)
+	distinctSet := make(map[interface{}]interface{})
+	checkSet := term.left.operator == DISTINCT
+	coltype := table.Columns()[aggTermCount].ColType
+	var actValue Value
+	for {
+		tuple, found, err := it.Next(func(tupleData []Value) (bool, error) { return true, nil })
+		if err != nil {
+			return err
+		}
+		if !found {
+			break
+		}
+		value := tuple.Data[aggTermCount]
+
+		if value != nil {
+			if checkSet {
+				setKey := value
+				switch coltype {
+				case TIMESTAMP:
+					setKey = value.(time.Time).UnixNano
+				case FLOAT:
+					setKey = math.Round(value.(float64)*1000000) / 1000000
+				}
+				if distinctSet[value] == nil {
+					distinctSet[setKey] = value
+				} else {
+					continue
+				}
+			}
+			actValue = aggregate(value)
+		}
+	}
+	term.operator = -1
+	term.left = nil
+	term.right = nil
+	term.leaf = &Ptr{actValue, coltype}
+	return nil
+}
+
+func doMin(table data.Table, aggTermCount int, term *GoSqlTerm) error {
+	coltype := table.Columns()[aggTermCount].ColType
+
+	minIsSet := false
+	var err error = nil
+	switch coltype {
+	case INTEGER:
+		min := int64(0)
+		err = iterateAggregation(table, aggTermCount, term, func(value Value) Value {
+			x := value.(int64)
+			if !minIsSet {
+				min = x
+				minIsSet = true
+			} else {
+				if x < min {
+					min = x
+				}
+			}
+			return min
+		})
+	case FLOAT:
+		min := float64(0)
+		err = iterateAggregation(table, aggTermCount, term, func(value Value) Value {
+			x := value.(float64)
+			if !minIsSet {
+				min = x
+				minIsSet = true
+			} else {
+				if x < min {
+					min = x
+				}
+			}
+			return min
+		})
+	case STRING:
+		min := ""
+		err = iterateAggregation(table, aggTermCount, term, func(value Value) Value {
+			x := value.(string)
+			if !minIsSet {
+				min = x
+				minIsSet = true
+			} else {
+				if x < min {
+					min = x
+				}
+			}
+			return min
+		})
+	case TIMESTAMP:
+		min := time.Unix(0, 0)
+		err = iterateAggregation(table, aggTermCount, term, func(value Value) Value {
+			x := value.(time.Time)
+			if !minIsSet {
+				min = x
+				minIsSet = true
+			} else {
+				if x.Before(min) {
+					min = x
+				}
+			}
+			return min
+		})
+	default:
+		return errors.New("column type not usable for aggregation")
+	}
+	return err
+}
+
+func doMax(table data.Table, aggTermCount int, term *GoSqlTerm) error {
+	coltype := table.Columns()[aggTermCount].ColType
+
+	maxIsSet := false
+	var err error = nil
+	switch coltype {
+	case INTEGER:
+		max := int64(0)
+		err = iterateAggregation(table, aggTermCount, term, func(value Value) Value {
+			x := value.(int64)
+			if !maxIsSet {
+				max = x
+				maxIsSet = true
+			} else {
+				if x > max {
+					max = x
+				}
+			}
+			return max
+		})
+	case FLOAT:
+		max := float64(0)
+		err = iterateAggregation(table, aggTermCount, term, func(value Value) Value {
+			x := value.(float64)
+			if !maxIsSet {
+				max = x
+				maxIsSet = true
+			} else {
+				if x > max {
+					max = x
+				}
+			}
+			return max
+		})
+	case STRING:
+		max := ""
+		err = iterateAggregation(table, aggTermCount, term, func(value Value) Value {
+			x := value.(string)
+			if !maxIsSet {
+				max = x
+				maxIsSet = true
+			} else {
+				if x > max {
+					max = x
+				}
+			}
+			return max
+		})
+	case TIMESTAMP:
+		max := time.Unix(0, 0)
+		err = iterateAggregation(table, aggTermCount, term, func(value Value) Value {
+			x := value.(time.Time)
+			if !maxIsSet {
+				max = x
+				maxIsSet = true
+			} else {
+				if x.After(max) {
+					max = x
+				}
+			}
+			return max
+		})
+	default:
+		return errors.New("column type not usable for aggregation")
+	}
+	return err
+}
+
+func doSum(table data.Table, aggTermCount int, term *GoSqlTerm) error {
+	coltype := table.Columns()[aggTermCount].ColType
+
+	switch coltype {
+	case INTEGER:
+		sum := int64(0)
+		err := iterateAggregation(table, aggTermCount, term, func(value Value) Value {
+			sum += value.(int64)
+			return sum
+		})
+		if err != nil {
+			return err
+		}
+	case FLOAT:
+		sum := float64(0)
+		err := iterateAggregation(table, aggTermCount, term, func(value Value) Value {
+			sum += value.(float64)
+			return sum
+		})
+		if err != nil {
+			return err
+		}
+	default:
+		return errors.New("column type not usable for aggregation")
+	}
+	return nil
+}
+
+func doAvg(table data.Table, aggTermCount int, term *GoSqlTerm) error {
+	coltype := table.Columns()[aggTermCount].ColType
+	n := 0
+
+	switch coltype {
+	case INTEGER:
+		sum := int64(0)
+		err := iterateAggregation(table, aggTermCount, term, func(value Value) Value {
+			n++
+			sum += value.(int64)
+			return float64(sum) / float64(n)
+		})
+		if err != nil {
+			return err
+		}
+	case FLOAT:
+		sum := float64(0)
+		err := iterateAggregation(table, aggTermCount, term, func(value Value) Value {
+			n++
+			sum += value.(float64)
+			return sum / float64(n)
+		})
+		if err != nil {
+			return err
+		}
+	default:
+		return errors.New("column type not usable for aggregation")
+	}
+	return nil
+}
+
+func doCount(table data.Table, aggTermCount int, term *GoSqlTerm) error {
+	count := 0
+	tmpTableLen := len(*table.Data())
+	if term.left.operator == ASTERISK {
+		count = tmpTableLen
+		term.operator = -1
+		term.left = nil
+		term.right = nil
+		term.leaf = &Ptr{count, INTEGER}
+	} else {
+		err := iterateAggregation(table, aggTermCount, term, func(value Value) Value {
+			if value != nil {
+				count++
+			}
+			return count
+		})
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func createTempTable(evaluationContexts []*EvaluationContext, names *[]SLName, sizeSelectList int) string {

@@ -255,15 +255,15 @@ nonboolean_term:
 
 aggregate_function_name: 
     COUNT
-    { $$ = $1 }
+    { $$ = COUNT }
   | SUM
-    { $$ = $1 }
+    { $$ = SUM }
   | AVG
-    { $$ = $1 }
+    { $$ = AVG }
   | MIN
-    { $$ = $1 }
+    { $$ = MIN }
   | MAX
-    { $$ = $1 }
+    { $$ = MAX }
 
 
 aggregate_function_parameter:  

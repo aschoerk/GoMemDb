@@ -89,9 +89,9 @@ type TempTableIterator struct {
 func (it *TempTableIterator) Next(check func([]driver.Value) (bool, error)) (Tuple, bool, error) {
 	for {
 		// ignore snapshot, just check if xids match
-		if len(it.table.Tempdata) < it.ix {
+		if len(it.table.Tempdata) > it.ix {
+			candidate := it.table.Tempdata[it.ix]
 			it.ix++
-			candidate := it.table.Tempdata[it.ix-1]
 			found, err := check(candidate)
 			if err != nil {
 				return NULL_TUPLE, false, err

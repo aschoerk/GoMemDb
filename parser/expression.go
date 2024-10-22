@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"time"
 
+	"github.com/aschoerk/go-sql-mem/data"
 	. "github.com/aschoerk/go-sql-mem/data"
 	. "github.com/aschoerk/go-sql-mem/machine"
 )
@@ -264,13 +265,18 @@ func (term *GoSqlTerm) handleLeaf(e *EvaluationContext) (int, error) {
 	}
 	if term.leaf.token == IDENTIFIER {
 		id := term.leaf.ptr.(string)
-		for ix, col := range e.t.Columns() {
-			if col.Name == id {
-				AddPushAttribute(e.m, ix)
-				return col.ParserType, nil
+		if id == data.VersionedRecordId {
+			AddPushAttribute(e.m, -1)
+			return INTEGER, nil
+		} else {
+			for ix, col := range e.t.Columns() {
+				if col.Name == id {
+					AddPushAttribute(e.m, ix)
+					return col.ParserType, nil
+				}
 			}
+			return -1, fmt.Errorf("Identifier %s not found", id)
 		}
-		return -1, fmt.Errorf("Identifier %s not found", id)
 	}
 	AddPushConstant(e.m, term.leaf.ptr)
 	return term.leaf.token, nil
