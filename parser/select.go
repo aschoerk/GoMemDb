@@ -49,7 +49,10 @@ func extractAggregation(t *GoSqlTerm) ([]*GoSqlTerm, bool) {
 	if isAggregation(t.operator) {
 		return []*GoSqlTerm{t}, false
 	}
-	usesIdentifiers := t.operator == IDENTIFIER
+	usesIdentifiers := false
+	if t.leaf != nil {
+		usesIdentifiers = t.leaf.token == IDENTIFIER
+	}
 	var res []*GoSqlTerm = nil
 	if t.left != nil {
 		restmp, usesIdentifiersTmp := extractAggregation(t.left)
@@ -82,7 +85,9 @@ func collectAggregation(r *GoSqlSelectRequest) ([]AggTermsBySelectListEntry, err
 			}
 			aggregationsTerms = append(aggregationsTerms, AggTermsBySelectListEntry{&sl, res, names})
 		} else {
-			aggregationsTerms = append(aggregationsTerms, AggTermsBySelectListEntry{&sl, nil, []string{fmt.Sprintf("const_%d", ix)}})
+			if !usesIdentifiers {
+				aggregationsTerms = append(aggregationsTerms, AggTermsBySelectListEntry{&sl, nil, []string{fmt.Sprintf("const_%d", ix)}})
+			}
 		}
 	}
 	return aggregationsTerms, nil
@@ -116,7 +121,7 @@ func buildAggregationSelectList(r *GoSqlSelectRequest) ([]*GoSqlTerm, []SLName, 
 					if t.operator != COUNT {
 						return nil, nil, nil, errors.New("expecting only COUNT as function if parameter is asterisk")
 					} else {
-						res = append(res, &GoSqlTerm{IDENTIFIER, nil, nil, &Ptr{data.VersionedRecordId, IDENTIFIER}})
+						res = append(res, &GoSqlTerm{-1, nil, nil, &Ptr{data.VersionedRecordId, IDENTIFIER}})
 						resNames = append(resNames, SLName{name, false})
 					}
 				}
@@ -191,7 +196,7 @@ func (r *GoSqlSelectRequest) Query(args []Value) (Rows, error) {
 		if err != nil {
 			return nil, err
 		}
-		if terms == nil || len(terms) == 0 {
+		if len(aggTermsBySelectListEntry) == 0 {
 			terms, names, err = buildSelectList(table, r)
 			if err != nil {
 				return nil, err
@@ -221,7 +226,7 @@ func (r *GoSqlSelectRequest) Query(args []Value) (Rows, error) {
 			return nil, err
 		}
 
-		if aggTermsBySelectListEntry == nil {
+		if len(aggTermsBySelectListEntry) == 0 {
 			r.State = data.Executing
 			return &GoSqlRows{r, temptableName, &names, 0}, nil
 		} else {

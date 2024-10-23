@@ -1,0 +1,47 @@
+@startuml
+
+' Start of the Flowchart
+start
+:Select Statement;
+
+' Transform to Term Trees
+:Transform to Term Trees;
+:Select List Trees, Where Clause Tree, opt Group By Tree, opt Having Tree;
+
+if (Group By Exists?) then (yes)
+    :Check select list - only constant terms, group by terms, aggregations allowed;
+    :Create temporary tables by evaluating where-machine on each source tuple;
+    :Create result record by applying group-by machines on such records, plus record ID;
+    :If having clause exists, apply having machine to check if group is to be processed;
+    :Resulting record is grouping key; create new slice or add to existing slice of record IDs;
+    :In each subtable, calculate aggregations including necessary columns for optional having;
+    :Create resulting temporary table from records left after having-machine evaluation;
+else (no)
+    ' Handling Aggregations
+    if (Aggregations in Select List?) then (yes)
+        :Extract Aggregation Trees;
+        :Create Stack Machines for parameter trees of the aggregation tree;
+        :Create Temporary Table with column names/types as defined by aggregation function;
+        :Apply Where Clause to each record in From-Table if matches;
+        :Apply Stack Machines for each column to populate Temporary Table;
+
+        ' Condense Temporary Table
+        :Filled Temporary Table;
+        :Apply Aggregations on corresponding columns of the temporary table;
+        :Replace Aggregation Part of original select list with treenode returning aggregation result;
+        :Create stack-machines from changed select-list-term-trees; only constants remain;
+        :Create record from constant-generating stack machines;
+        :Insert record into primitive result table for rows-object return;
+    else (no)
+        ' Normal Select List Processing
+        :Convert Term Trees to Stack Machines;
+        :Evaluate Stack Machines;
+
+        ' Create Resulting Temporary Table
+        :Create Temporary Table for Normal Select;
+    endif
+endif
+
+stop
+
+@enduml

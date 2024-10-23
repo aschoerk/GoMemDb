@@ -13,16 +13,17 @@ import (
 	. "github.com/aschoerk/go-sql-mem/machine"
 )
 
+// the data necessary to convert a TermTree into a machine to calculate the result of the term
 type EvaluationContext struct {
 	m                    *Machine
-	lastPlaceHolderIndex int
-	t                    Table
-	resultType           int
-	name                 *string
+	lastPlaceHolderIndex int   // describes when encountering placeholders from which offset the index to adapt
+	t                    Table // describes the record types
+	resultType           int   // here the evaluation describes the type of the result (INTEGER, FLOAT, VARCHAR, TIMESTAMP)
+	// name                 *string
 }
 
 func NewEvaluationContext(args []Value, lastPlaceHolderIndex int) EvaluationContext {
-	return EvaluationContext{NewMachine(args), lastPlaceHolderIndex, nil, -1, nil}
+	return EvaluationContext{NewMachine(args), lastPlaceHolderIndex, nil, -1}
 }
 
 // represents parts of expressions
@@ -128,7 +129,7 @@ func Terms2Commands(terms []*GoSqlTerm, args []driver.Value, inputTable Table, p
 	for _, term := range terms {
 		e := NewEvaluationContext(args, currentPlaceholderIndex)
 		e.t = inputTable
-		resultType, err := term.evaluate(&e)
+		resultType, err := term.toMachine(&e)
 		e.resultType = resultType
 		if err != nil {
 			return res, err
@@ -275,19 +276,19 @@ func (term *GoSqlTerm) handleLeaf(e *EvaluationContext) (int, error) {
 					return col.ParserType, nil
 				}
 			}
-			return -1, fmt.Errorf("Identifier %s not found", id)
+			return -1, fmt.Errorf("identifier %s not found", id)
 		}
 	}
 	AddPushConstant(e.m, term.leaf.ptr)
 	return term.leaf.token, nil
 }
 
-func (term *GoSqlTerm) evaluate(e *EvaluationContext) (int, error) {
+func (term *GoSqlTerm) toMachine(e *EvaluationContext) (int, error) {
 	if term.leaf != nil {
 		return term.handleLeaf(e)
 	}
 	if term.right == nil {
-		tmp, err := term.right.evaluate(e)
+		tmp, err := term.right.toMachine(e)
 		if err != nil {
 			return -1, err
 		}
@@ -300,17 +301,19 @@ func (term *GoSqlTerm) evaluate(e *EvaluationContext) (int, error) {
 		case ISNOTNULL:
 			e.m.AddCommand(IsNotNullCommand)
 			return BOOLEAN, nil
+		default:
+			return -1, fmt.Errorf("trying to build machine containing invalid operator %d, term: %v", term.operator, term)
 		}
 	} else {
 		if term.left == nil {
 			panic("term left is nil")
 		}
-		leftType, leftError := term.left.evaluate(e)
+		leftType, leftError := term.left.toMachine(e)
 
 		if leftError != nil {
 			return -1, leftError
 		}
-		rightType, rightError := term.right.evaluate(e)
+		rightType, rightError := term.right.toMachine(e)
 		if rightError != nil {
 			return -1, rightError
 		}
@@ -340,7 +343,6 @@ func (term *GoSqlTerm) evaluate(e *EvaluationContext) (int, error) {
 		e.m.AddCommand(c)
 		return destType, nil
 	}
-	return -1, errors.New("error evaluating")
 }
 
 func calcOperationCommand(opType int, destType int, leftType int, rightType int) (Command, error) {
@@ -409,7 +411,7 @@ func calcOperationCommand(opType int, destType int, leftType int, rightType int)
 		}
 		return nil, fmt.Errorf("unsupported operator type: %d", opType)
 	}
-	return nil, errors.New("Unable to find operation command")
+	return nil, errors.New("unable to find operation command")
 }
 
 // Function to get the correct comparison function

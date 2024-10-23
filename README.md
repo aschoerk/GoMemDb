@@ -1,8 +1,48 @@
 # README #
 A project allowing me to use go in a not so simple environment. The idea is to implement a simple inmemory database in multiple stages
-* INSERT/SELECT (only WHERE) on single tables existing of [][]interface{}
-* creation of tempor
+
+# Principles
+
+## Interface: Package database/sql
+The data manipulation and querying will be conducted through the Go standard database/sql interface. A subset of SQL will be available for these operations. The level of compliance with the SQL standard will depend on the maturity of the current release, with improvements expected over time.
+
+## Multi-User/Connection
+The module offers two primary modes of operation: in-memory and server-based. Below are examples of how to use each mode, formatted in markdown with code snippets.
+In-Memory Usage
+To use the module entirely in-memory, you can open a database connection using the following code:
+
+```go
+db, err := sql.Open("GoSql", "memory")
+```
+
+This approach allows for fast data manipulation and querying without any persistence beyond the application's runtime.
+Server-Based Usage
+Alternatively, you can start a server to handle database operations. First, initiate the server with:
+
+```go
+driver.StartServer()
+```
+
+Once the server is running, you can access it via HTTP using:
+
+```go
+db, err := sql.Open("GoSqlRest", "http://localhost:8080")
+```
+
+This setup enables remote access to the database, allowing multiple clients to connect and interact with it over the network.
+
+
+## In-Memory Storage
+The data store is currently maintained in memory, meaning that all data is lost when the process ends. Future plans include implementing file storage to persist data changes, allowing the system to restore its state after a restart. However, this file storage will serve solely as a backup mechanism, and no search operations will be performed directly on the file storage.
+
+##  
+
+
+# Progression
+
+* INSERT/SELECT on **single** tables existing of [][]interface{}
 * UPDATE/DELETE
+* Available Types: INTEGER (int64), FLOAT(float64), VARCHAR(string), TIMESTAMP(time.Time)
 * Remote Access via Rest, plus database/sql/driver --> there is a second driver which can be used as client. Use server_test to start a Rest - Server 
 ** need to change xid assignment to only at moment of changes <-- StartTransaction does that now. 
 ** need to do locking using fields in Tuple, no extra Lockmanager-Lockstorage - xmax is used for that, if tra is in state isStarted, the record is locked
@@ -23,83 +63,6 @@ A project allowing me to use go in a not so simple environment. The idea is to i
 
 
 ### Next issues
-
-### Iterator Next
-
-* if record visible Next uses check function then locking is done if necessary,
-* xmin, xmax: entries in version header
-* s.committed: committed (according to tra data) < s.xmax,  not running according to snapshot (not in s.running)
-* s.xmax at time of creation of snapshot the next xid to be assigned to a transaction
-* s.running: running transaction at time of snapshot creation (in s.running) != xid of current transaction
-* s.rolledback rolledback, < s.xmax, not in running transactions at time of snapshot creation (not in s.running) 
-* versions are ordered in time of creation, the last version is looked at first
-** only one transaction can change a record at a certain time. 
-** changes always occur in a serial manner. Changes to records can not overtake between transactions
-* statement numbers are only relevant for running transactions, therefore for each change of a version the current statementnumber is stored in the header
-* if r.xmin == r.xmax the statement number belongs to xmax change
-* if r.xmax == 0: the cid belongs to xmin change it gets overwritten by xmax change. <-- inserts can not be distinguished by statement number if updates happen later. solution: inserts might vanish if selected for update
-
-
-### Systematic analysis 
-
-Discuss situations during Visibility check together with collecting information for locking possibilities
-
-| Code  | 1st   | tra       | r.xmin                           | r.xmax                              | r.cid      | lock for change possible?         | todo                                                  |
-|-------|-------|-----------|----------------------------------|-------------------------------------|------------|-----------------------------------|-------------------------------------------------------|
-| n1    | y     | xid/nil   | xid2 c, Visible                  | == 0                                | n/a        | yes,                              | Visible                                               |
-| n2    | y     | xid/nil   | xid2 c, Visible                  | xid3/xid2 c, Visible                | n/a        | no                                | InVisible, deleted                                    |
-| n3    | y     | xid/nil   | xid2 c, Visible                  | xid3 c, UnVisible                   | n/a        | no                                | Visible                                               |
-| n4    | y     | xid/nil   | xid2 c, Visible                  | xid3/xid2 c, Visible for update     | n/a        | no                                | Visible                                               |
-| n5    | y     | xid/nil   | xid2 c, Visible                  | xid3 c, UnVisible for update        | n/a        | no                                | Visible                                               |
-| n6    | y     | xid/nil   | xid2 c, Visible                  | xid3 rolledback==Unvisible          | n/a        | yes                               | Visible                                               |
-| n7    | y     | xid/nil   | xid2 c, Visible                  | xid3 running                        | n/a        | wait                              | dependent on tra result && tuple selected             |
-| ----- | ----- | --------- | -------------------------------- | --------------------------------    | ---------- | -------------------------------   | ---------------------------------------------------   |
-| n8    | y     | xid/nil   | xid2 rolled back                 | n/a                                 | n/a        | open, version deletable           | Look Previous, delete version f == y                  |
-|       | y     | xid/nil   | xid2 running                     | n/a                                 | n/a        | if previous visible wait          | Previous                                              |
-|       |       |           |                                  |                                     |            | - for r.xmin commit/rollback      |                                                       |
-| ----- | ----- | --------- | -------------------------------- | --------------------------------    | ---------- | -------------------------------   | ---------------------------------------------------   |
-| n9    | y     | xid/nil   | xid2 c Invisible                 | n/a                                 | n/a        | no, changed in diff tra           | Look Previous:                                        |
-|       | f     | xid/nil   | not existent                     | not existent                        | n/a        |                                   | Not Visible                                           |
-|       | f     | xid/nil   | xid3 Visible                     | xid2 !                              |            |                                   | Visible                                               |
-|       | f     | xid/nil   | xid3 UnVisible                   | xid2 !                              |            |                                   | Look Previous same                                    |
-|       | ----- | --------- | -------------------------------- | ----------------------------------- | ---------- | --------------------------------- | ----------------------------------------------------- |
-| t1    | y     | xid       | xid                              | == 0                                | < s.cid    | already locked                    | return Visible                                        |
-|       | ----- | --------- | -------------------------------- | --------------------------------    | ---------- | -------------------------------   | ---------------------------------------------------   |
-| t2    | y     | xid       | xid                              | == 0                                | >= s.cid   | no, unseen change in same tra     | Look Previous                                         |
-| t21   | f     | xid !     | not existent                     | not existent                        | n/a        |                                   | Not Visible                                           |
-|       | f     | xid !     | n/a                              | xid !                               | < s.cid    |                                   | Illegal, s.cid should be the same as for 1st          |
-|       | f     | xid !     | n/a                              | xid2                                | n/a        |                                   | Illegal                                               |
-|       | f     | xid !     | xid                              | xid !                               | >= s.cid   |                                   | Look Previous until following cond meet               |
-|       | ff    | xid !     | n/a                              | xid !                               | < s.cid    |                                   | Take f version                                        |
-| t22   | f     | xid !     | xid2 c, Visible !                | xid !                               | >= s.cid   |                                   | r.xmin Visible                                        |
-|       |       |           | !valid tra changed               |                                     |            |                                   |                                                       |
-|       | f     | xid !     | xid2 c, Invisible                | xid !                               | >= s.cid   |                                   | Look Previous                                         |
-|       | ff    | xid !     | xid3 c, other Visible            | xid2 same as previous !             | n/a        |                                   | Look Previous until r.xmin visible                    |
-|       | ----- | --------- | -------------------------------- | --------------------------------    | ---------- | -------------------------------   | ---------------------------------------------------   |
-| t3    | y     | xid       | xid                              | xid                                 | >= s.cid   | no, unseen change in same tra     | Look Previous knowing Insert happened (xmin xid),     |
-| t31   | f     | xid !     | not existent                     | not existent                        | n/a        |                                   | Visible previous r.cid was for r.xmax                 |
-| t32   | f     | xid !     | xid                              | xid !                               | >= s.cid   |                                   | Look Previous                                         |
-| t321  | ff    | xid !     | not existent                     | not existent                        | n/a        |                                   | * Invisible, dont know about r.cid for r.xmin         |
-| t322  | ff    | xid !     | xid                              | xid !                               | < s.cid    |                                   | Visible f Version                                     |
-| t33   | f     | xid !     | n/a                              | xid !                               | < s.cid    |                                   | Visible f Version                                     |
-| t34   | f     | xid !     | xid2, c Visible                  | xid !                               | >= s.cid   |                                   | Visible                                               |
-| t35   | f     | xid !     | xid2, c InVisible                | xid !                               | >= s.cid   |                                   | Look Previous                                         |
-|       | ----- | --------- | -------------------------------- | --------------------------------    | ---------- | -------------------------------   | ---------------------------------------------------   |
-| t5    | y     | xid       | xid                              | xid                                 | < s.cid    | yes, but already done             | InVisible deleted                                     |
-| t6    | y     | xid       | xid                              | xid for update                      | < s.cid    | yes, but already done             | Visible was only marked                               |
-| t7    | y     | xid       | xid                              | xid2                                |            | n/a                               | illegal                                               |
-| t8    | y     | xid       | xid2, Visible                    | xid                                 | >= s.cid   | no, unseen change in same tra     | return Visible                                        |
-|       | ----- | --------- | -------------------------------- | --------------------------------    | ---------- | -------------------------------   | ---------------------------------------------------   |
-| t9    | y     | xid       | xid2, InVisible                  | xid                                 | >= s.cid   | no, unseen change in same tra     | Look Previous                                         |
-| t91   | f     | xid       | xid2, Visible(!=xmax)            | xid2 !                              | n/a        |                                   | Visible                                               |
-| t92   | f     | xid       | xid2, InVisible(!=xmax)          | xid2 !                              | n/a        |                                   | Look Previous                                         |
-| t93   | f     | xid       | not existent                     | not existent                        | n/a        |                                   | Invisible                                             |
-|       | ----- | --------- | -------------------------------- | --------------------------------    | ---------- | -------------------------------   | ---------------------------------------------------   |
-| t10   | y     | xid       | xid2                             | xid                                 | < s.cid    | Invisible                         | Invisible, Deleted,                                   |
-| t11   | y     | xid       | xid2                             | xid for update                      | < s.cid    | yes, but already done             | return Visible (only selected yet)                    |
-|       |       |           | records not touched by xid yet   |                                     |            |                                   |                                                       |
-
-
 
 
 
