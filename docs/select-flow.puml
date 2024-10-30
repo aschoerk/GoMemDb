@@ -1,0 +1,19 @@
+@startuml
+
+start
+:Select;
+:Parse;
+:Generate Joined View;
+:Generate Groups to Aggregate;
+:Generate Result;
+stop
+
+start
+:Generate Joined View;
+:Analyze From;
+:Create Match-Trees; 
+:Create Iterator for Base-View;
+
+stop
+
+@enduml

@@ -10,9 +10,10 @@ start
 
 if (Group By Exists?) then (yes)
     :Check select list - only constant terms, group by terms, aggregations allowed;
+    :Create instructions to create first temp table containing the result of terms to be aggregated (aggbases) and group by terms on source record;
     :Create temporary tables by evaluating where-machine on each source tuple;
     :Create result record by applying group-by machines on such records, plus record ID;
-    :If having clause exists, apply having machine to check if group is to be processed;
+    :If having clause exists, apply having machine to check if group is to part of results;
     :Resulting record is grouping key; create new slice or add to existing slice of record IDs;
     :In each subtable, calculate aggregations including necessary columns for optional having;
     :Create resulting temporary table from records left after having-machine evaluation;
