@@ -2,6 +2,7 @@ package parser
 
 import (
 	"database/sql/driver"
+	"github.com/aschoerk/go-sql-mem/data"
 	"time"
 )
 
@@ -33,6 +34,22 @@ type GoSqlOrderBy struct {
 }
 
 type GoSqlUpdateSpec struct {
-	Name string
+	Name data.GoSqlIdentifier
 	term *GoSqlTerm
+}
+
+type GoSqlAsIdentifier struct {
+	Id data.GoSqlIdentifier
+	As string
+}
+
+type GoSqlJoinSpec struct {
+	JoinMode      int
+	JoinedTable   GoSqlAsIdentifier
+	JoinCondition *GoSqlTerm
+}
+
+type GoSqlFromSpec struct {
+	Id        GoSqlAsIdentifier
+	JoinSpecs []*GoSqlJoinSpec
 }

@@ -16,6 +16,7 @@ import (
 const (
 	PRIMARY_AUTOINCREMENT = 1
 	DEFAULT_MAX_LENGTH    = 40
+	DEFAULT_SCHEMA_NAME   = "%%DEFAULTSCHEMA%%"
 )
 
 var (
@@ -40,6 +41,7 @@ type TableIterator interface {
 }
 
 type Table interface {
+	Schema() string
 	Name() string
 	Columns() []GoSqlColumn
 	Data() *[][]driver.Value
@@ -106,6 +108,7 @@ func (it *TempTableIterator) Next(check func([]driver.Value) (bool, error)) (Tup
 }
 
 type BaseTable struct {
+	SchemaName   string
 	TableName    string
 	TableColumns []GoSqlColumn
 }
@@ -121,6 +124,10 @@ type GoSqlTable struct {
 
 func (t *BaseTable) Name() string {
 	return t.TableName
+}
+
+func (t *BaseTable) Schema() string {
+	return t.SchemaName
 }
 
 func (t *BaseTable) Columns() []GoSqlColumn {
@@ -140,17 +147,40 @@ func (t *GoSqlTable) Data() *[][]driver.Value {
 	return nil
 }
 
-func NewTempTable(name string, columns []GoSqlColumn) Table {
-	res := &TempTable{BaseTable{name, columns}, [][]driver.Value{}}
+type TempTableData struct {
+	nextTableId atomic.Int64
+	mu          sync.RWMutex
+}
+
+var tempTableData = TempTableData{}
+
+const tempTableSchemaName = "%TEMPTABLES%"
+
+func NewTempTable(columns []GoSqlColumn) Table {
+	nextId := tempTableData.nextTableId.Add(1)
+	res := &TempTable{BaseTable{tempTableSchemaName, fmt.Sprintf("Temp%d", nextId), columns}, [][]driver.Value{}}
 	tablesMu.Lock()
 	defer tablesMu.Unlock()
-	Tables[name] = res
+	tempTables := Schemas[tempTableSchemaName]
+	if tempTables == nil {
+		tempTables = make(map[string]Table)
+		Schemas[tempTableSchemaName] = tempTables
+	}
+	tempTables[res.TableName] = res
 	return res
 }
 
-func NewTable(name string, columns []GoSqlColumn) *GoSqlTable {
-	res := &GoSqlTable{BaseTable{name, columns}, make(map[string]int64), atomic.Int64{},
-		redblacktree.NewWith(utils.Int64Comparator), []TableIterator{}, sync.RWMutex{}}
+func NewTable(name GoSqlIdentifier, columns []GoSqlColumn) *GoSqlTable {
+	var tableName, schemaName string
+	if len(name.Parts) > 1 {
+		schemaName = name.Parts[0]
+		tableName = name.Parts[1]
+	} else {
+		schemaName = DEFAULT_SCHEMA_NAME
+		tableName = name.Parts[0]
+	}
+	res := &GoSqlTable{BaseTable{schemaName, tableName, columns}, make(map[string]int64),
+		atomic.Int64{}, redblacktree.NewWith(utils.Int64Comparator), []TableIterator{}, sync.RWMutex{}}
 	res.NextTupleId.Store(1)
 	return res
 }
@@ -694,5 +724,6 @@ func (t *TempTable) Delete(recordId int64, conn *GoSqlConnData) bool {
 }
 
 var (
-	Tables map[string]Table = make(map[string]Table)
+	Schemas map[string]map[string]Table = make(map[string]map[string]Table)
+	// Tables map[string]Table = make(map[string]Table)
 )

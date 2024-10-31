@@ -18,10 +18,10 @@ type GoSqlInsertRequest struct {
 	evaluationContexts [][]*EvaluationContext // valid in State Executing, must have the same length as Table has columns
 }
 
-func NewInsertRequest(tableName string, columns []string, values [][]*GoSqlTerm) *GoSqlInsertRequest {
+func NewInsertRequest(tableName GoSqlIdentifier, columns []string, values [][]*GoSqlTerm) *GoSqlInsertRequest {
 	return &GoSqlInsertRequest{
 		data.BaseStatement{data.StatementBaseData{nil, nil, data.Parsed}},
-		tableName,
+		tableName.Parts[0],
 		columns,
 		values,
 		nil,
@@ -41,7 +41,7 @@ func (r *GoSqlInsertRequest) NumInput() int {
 }
 
 func (r *GoSqlInsertRequest) Exec(args []Value) (Result, error) {
-	table, exists := Tables[r.tableName]
+	table, exists := data.GetTable(r.BaseStatement, GoSqlIdentifier{[]string{r.tableName}})
 	if !exists {
 		return nil, fmt.Errorf("Unknown Table %s", r.tableName)
 	} else {

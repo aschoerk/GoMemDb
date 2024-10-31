@@ -61,6 +61,11 @@ func TestOrderBy(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			defer func() {
+				if r := recover(); r != nil {
+					t.Errorf("Test panicked: %v", r)
+				}
+			}()
 			rows, err := db.Query(tc.query)
 			if err != nil {
 				t.Fatalf("Query failed: %v", err)

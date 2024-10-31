@@ -4,7 +4,44 @@ start
 :Select;
 :Parse;
 :Generate Joined View;
-:Generate Groups to Aggregate;
+if (aggregation or group by exists)
+   if (group by exists) then (yes)
+      :selectlist can only contain \n const-, aggregation- and group by- \nexpressions;
+      :group by may not contain aggregations;
+      if (having exists) then (yes)
+         :check having only contains group relevant expressions;
+         if (having contains conditions on "group by" expressions by and) then (yes)
+            :add those expressions to where class by and, remove from having;
+         endif
+      endif
+   else (no)
+      :select list may only contain aggregations;
+   endif
+   while (records in sourceview exists) then (yes)
+      if (where true for record) then (yes)
+         :calculate destination record from source and parameters;
+         :add destination record according to group by;
+      else (no)
+         :ignore record;
+      endif
+   endwhile
+   :intermediate select list calculated containing groups;
+   :groups calculated (special case "no group by" --> only one group);
+   :result calculated by applying aggregations and constant expressions to selectlist;
+else (no aggregation)
+   :no intermediate selectlist necessary;
+   if (order by needs fields from source record not in selectlist) then (yes)
+      :add value as hidden field to select list;
+   endif
+   :selectlist does not contain aggregations;
+   while (records in sourceview exists)
+      if (where true for record) then (yes)
+         :apply selectlist to sourcerecord and parameters;
+      else (no)
+         :ignore record;
+      endif
+   endwhile
+endif
 :Generate Result;
 stop
 

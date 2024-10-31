@@ -28,7 +28,7 @@ func NewStatementBaseData(t *testing.T) *data.StatementBaseData {
 func InitTraAndTestTable() *data.GoSqlTable {
 	nextUpdateValue = 100
 	data.InitTransactionManager()
-	return data.NewTable("testtable", []data.GoSqlColumn{data.GoSqlColumn{"x", parser.INTEGER, parser.INTEGER, 0, 0, false}})
+	return data.NewTable(data.GoSqlIdentifier{[]string{"testtable"}}, []data.GoSqlColumn{data.GoSqlColumn{"x", parser.INTEGER, parser.INTEGER, 0, 0, false}})
 }
 
 func check(tuple []Value) (bool, error) {

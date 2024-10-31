@@ -11,7 +11,7 @@ import (
 
 type GoSqlUpdateRequest struct {
 	data.BaseStatement
-	tableName    string
+	tableName    []*GoSqlFromSpec
 	updates      []GoSqlUpdateSpec
 	where        *GoSqlTerm
 	terms        []*GoSqlTerm
@@ -20,11 +20,11 @@ type GoSqlUpdateRequest struct {
 	table        data.Table
 }
 
-func NewUpdateRequest(tableName string, updates []GoSqlUpdateSpec, where *GoSqlTerm) *GoSqlUpdateRequest {
+func NewUpdateRequest(tableName GoSqlAsIdentifier, updates []GoSqlUpdateSpec, where *GoSqlTerm) *GoSqlUpdateRequest {
 	return &GoSqlUpdateRequest{
 		data.BaseStatement{
 			data.StatementBaseData{}},
-		tableName, updates, where,
+		[]*GoSqlFromSpec{&GoSqlFromSpec{tableName, nil}}, updates, where,
 		nil, nil, nil, nil,
 	}
 }
@@ -43,15 +43,15 @@ func NewConnectionLevelRequest(token1 int, token2 int) *GoSqlConnectionLevelRequ
 
 type GoSqlDeleteRequest struct {
 	data.BaseStatement
-	from  string
+	from  []*GoSqlFromSpec
 	where *GoSqlTerm
 }
 
 func (r *GoSqlUpdateRequest) initStruct() error {
 	if r.columnixs == nil {
-		tmptable, exists := data.Tables[r.tableName]
+		tmptable, exists := data.GetTable(r.BaseStatement, r.tableName[0].Id.Id)
 		if !exists {
-			return fmt.Errorf("Unknown Table %s", r.tableName)
+			return fmt.Errorf("Unknown Table %s", r.tableName[0].Id.Id)
 		}
 		r.table = tmptable
 		r.terms = []*GoSqlTerm{}
@@ -60,7 +60,7 @@ func (r *GoSqlUpdateRequest) initStruct() error {
 		for _, u := range r.updates {
 			r.placeHolders = u.term.FindPlaceHolders(r.placeHolders)
 			r.terms = append(r.terms, u.term)
-			colix, err := r.table.FindColumn(u.Name)
+			colix, err := r.table.FindColumn(u.Name.Parts[0])
 			if err != nil {
 				return err
 			}
@@ -199,7 +199,7 @@ func (r *GoSqlDeleteRequest) NumInput() int {
 }
 
 func (r *GoSqlDeleteRequest) Exec(args []Value) (Result, error) {
-	table, exists := data.Tables[r.from]
+	table, exists := data.GetTable(r.BaseStatement, r.from[0].Id.Id)
 	if !exists {
 		return nil, fmt.Errorf("Unknown Table %s", r.from)
 	}

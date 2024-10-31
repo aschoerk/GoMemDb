@@ -47,10 +47,16 @@ type yyLexerEx interface {
     updateRequest GoSqlUpdateRequest
     deleteRequest GoSqlDeleteRequest
     parseResult driver.Stmt
+    identifier_as GoSqlAsIdentifier
+    join_specs []*GoSqlJoinSpec
+    table_specs []*GoSqlFromSpec
+    identifier GoSqlIdentifier
+    identifier_list []string
 }
 
 // DDL
 %token CREATE DATABASE SCHEMA ALTER TABLE ADD AS IF NOT EXISTS PRIMARY KEY AUTOINCREMENT POPEN PCLOSE KOMMA
+%token INNER OUTER LEFT RIGHT FULL CROSS JOIN ON
 %token <token> CHAR VARCHAR INTEGER FLOAT TEXT BOOLEAN TIMESTAMP FOR
 // DML
 %token SELECT DISTINCT ALL FROM WHERE GROUP BY HAVING ORDER ASC DESC UNION BETWEEN BETWEEN_AND AND IN INSERT UPDATE SET DELETE INTO VALUES
@@ -75,6 +81,7 @@ type yyLexerEx interface {
 %left BETWEEN BETWEEN_AND
 %left	PLUS MINUS
 %left	ASTERISK DIVIDE MOD
+%left DOT
 %left	NEG     /* negation--unary minus */
 
 %type <column> column
@@ -90,13 +97,18 @@ type yyLexerEx interface {
 %type <selectList> select_list
 %type <selectListEntry> select_list_entry
 %type <string> select_list_entry_alias
-%type <string> from_spec
-%type <term> term nonboolean_term opt_where opt_having aggregate_function_parameter
+%type <term> term nonboolean_term opt_where opt_having aggregate_function_parameter join_restriction
 %type <orderByEntry> order_by_entry
 %type <orderByEntryList> order_by_entry_list opt_order_by
 %type <token> order_by_direction opt_for_update
 %type <updateSpec> update_spec
 %type <updateSpecs> update_specs
+%type <token> join_mode
+%type <identifier_as> table_identification
+%type <join_specs> join_specs join_spec
+%type <table_specs> table_spec from_spec
+%type <identifier> identifier
+%type <identifier_list> identifier_list
 
 %% /* The grammar follows.  */
 
@@ -111,17 +123,19 @@ statement: ddl_statement
             { $$ = $1 }
 
 ddl_statement:
-        CREATE DATABASE if_exists_predicate IDENTIFIER 
+        CREATE DATABASE if_exists_predicate identifier
             { $$ = &GoSqlCreateDatabaseRequest{NewStatementBaseData(), $3, $4} }
-        | CREATE SCHEMA if_exists_predicate IDENTIFIER 
+        | CREATE SCHEMA if_exists_predicate identifier
             { $$ = &GoSqlCreateSchemaRequest{NewStatementBaseData(), $3, $4} }
         | create_table
             { $$ = $1 }
 
 
 create_table:
-    CREATE TABLE if_exists_predicate IDENTIFIER POPEN columns PCLOSE
-        { $$ = &GoSqlCreateTableRequest {NewStatementBaseData(),$3, NewTable($4, $6) } }
+    CREATE TABLE if_exists_predicate identifier POPEN columns PCLOSE
+        {
+        $$ = &GoSqlCreateTableRequest {NewStatementBaseData(),$3, NewTable($4, $6) }
+        }
 
 columns: column
        { $$ = []GoSqlColumn{$1}}
@@ -182,7 +196,7 @@ connection_level:
 delete: DELETE FROM from_spec opt_where
     { $$ = &GoSqlDeleteRequest{NewStatementBaseData(),$3, $4}}            
 
-update: UPDATE IDENTIFIER SET update_specs opt_where
+update: UPDATE table_identification SET update_specs opt_where
     { $$ = NewUpdateRequest($2, $4, $5) }
 
 update_specs: update_spec
@@ -191,7 +205,7 @@ update_specs: update_spec
       { $$ = append($1, $3) }
 
 
-update_spec: IDENTIFIER EQUAL term
+update_spec: identifier EQUAL term
    { $$ = GoSqlUpdateSpec{ $1, $3 }}
 
 
@@ -229,8 +243,58 @@ select_list_entry_alias:
     | AS IDENTIFIER
     { $$ = $2}
 
+table_identification: identifier { $$ = GoSqlAsIdentifier{$1, ""} }
+     | identifier AS IDENTIFIER
+     { $$ = GoSqlAsIdentifier{$1, $3} }
 
-from_spec: IDENTIFIER { $$ = $1 }
+join_mode:
+   JOIN
+   { $$ = INNER }
+   | INNER JOIN
+   { $$ = INNER }
+   | LEFT JOIN
+   { $$ = LEFT }
+   | LEFT OUTER JOIN
+   { $$ = LEFT }
+   | RIGHT JOIN
+   { $$ = RIGHT }
+   | RIGHT OUTER JOIN
+   { $$ = RIGHT }
+   | FULL JOIN
+   { $$ = FULL }
+   | FULL OUTER JOIN
+   { $$ = FULL }
+   | CROSS JOIN
+      { $$ = CROSS }
+
+
+join_restriction:
+   { $$ = nil }
+   | ON term
+   { $$ = $2 }
+
+join_spec:
+   table_identification join_restriction
+   { $$ = []*GoSqlJoinSpec{&GoSqlJoinSpec{0, $1, $2}} }
+
+join_specs:
+    join_spec
+   { $$ = $1 }
+   | join_specs join_mode join_spec
+   { $3[0].JoinMode = $2; $$ = append($1, $3...) }
+
+table_spec:
+  table_identification
+  { $$ = []*GoSqlFromSpec{&GoSqlFromSpec{$1, nil}} }
+  | table_identification join_mode join_specs
+    { $3[len($3)-1].JoinMode = $2; $$ = []*GoSqlFromSpec{&GoSqlFromSpec{$1, $3}} }
+
+from_spec:
+   table_spec
+    { $$ = $1 }
+   | from_spec KOMMA table_spec
+   { $$ = append($1, $3...) }
+
 
 opt_where:
     { $$ = nil}
@@ -335,8 +399,17 @@ order_by_direction:
   | DESC
     { $$ = DESC}
 
+identifier_list:
+   IDENTIFIER
+   { $$ = []string{$1} }
+   | identifier_list DOT IDENTIFIER
+   { $$ = append($1,$3) }
 
-order_by_entry: IDENTIFIER order_by_direction
+identifier:
+   identifier_list
+   { $$ = GoSqlIdentifier{$1} }
+
+order_by_entry: identifier order_by_direction
         { $$ = GoSqlOrderBy {$1, $2 } }
     | POSITIVE_DECIMAL_INTEGER_NUMBER  order_by_direction
         { $$ = GoSqlOrderBy {$1, $2 } }
@@ -354,7 +427,7 @@ opt_having:
 update: UPDATE
     { $$ = nil }
 
-insert: INSERT INTO IDENTIFIER POPEN field_list PCLOSE VALUES term_lists
+insert: INSERT INTO identifier POPEN field_list PCLOSE VALUES term_lists
   { $$ = NewInsertRequest($3, $5, $8) }
 
 term_lists: POPEN term_list PCLOSE
@@ -375,7 +448,7 @@ term_list: term
 const_expression:
     PLACEHOLDER
     { $$ = &Ptr {$1,PLACEHOLDER} }
-    | IDENTIFIER
+    | identifier
     { $$ = &Ptr {$1,IDENTIFIER} }
     | DECIMAL_INTEGER_NUMBER
     { $$ = &Ptr {int64($1),INTEGER} }
@@ -412,6 +485,9 @@ func Parse(sql string) (driver.Stmt, int) {
     yyDebug = YYDebug
     yyErrorVerbose = true
     lexer := newLexer(bufio.NewReader(strings.NewReader(sql)))
+    if yyDebug > 0 {
+      lexer.yy.debug = true
+    }
     res := yyNewParser().Parse(lexer)
     return lexer.parseResult, res
 }

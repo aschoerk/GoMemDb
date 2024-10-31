@@ -17,13 +17,13 @@ type GoSqlCreateTableRequest struct {
 type GoSqlCreateDatabaseRequest struct {
 	data.BaseStatement
 	ifExists int
-	name     string
+	name     GoSqlIdentifier
 }
 
 type GoSqlCreateSchemaRequest struct {
 	data.BaseStatement
 	ifExists int
-	name     string
+	name     GoSqlIdentifier
 }
 
 func (r *GoSqlCreateDatabaseRequest) Exec(args []Value) (Result, error) {
@@ -35,16 +35,20 @@ func (r *GoSqlCreateSchemaRequest) Exec(args []Value) (Result, error) {
 }
 
 func (r *GoSqlCreateTableRequest) Exec(args []Value) (Result, error) {
-	if Tables == nil {
-		Tables = make(map[string]Table)
+	if r.table.SchemaName == data.DEFAULT_SCHEMA_NAME {
+		r.table.SchemaName = r.Conn.CurrentSchema
 	}
-	_, exists := Tables[r.table.Name()]
+	// r.BaseStatement.Conn.CurrentSchema
+	if Schemas[r.table.SchemaName] == nil {
+		Schemas[r.table.SchemaName] = make(map[string]Table)
+	}
+	_, exists := Schemas[r.table.SchemaName][r.table.Name()]
 	if exists {
 		if r.ifExists == 1 {
 			return GoSqlResult{-1, -1}, fmt.Errorf("table %s already exists", r.table.Name())
 		}
 	} else {
-		Tables[r.table.Name()] = data.NewTable(r.table.Name(), r.table.Columns())
+		Schemas[r.table.SchemaName][r.table.Name()] = r.table
 	}
 	return &GoSqlResult{-1, 0}, nil
 }

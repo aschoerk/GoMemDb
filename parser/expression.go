@@ -76,8 +76,8 @@ func OrderBy2Commands(orderByList *[]GoSqlOrderBy, table Table) (*EvaluationCont
 			return nil, err
 		}
 		ix := -1
-		if nameType == STRING {
-			ix, err = table.FindColumn(orderByEntry.Name.(string))
+		if nameType == IDENTIFIER {
+			ix, err = table.FindColumn(orderByEntry.Name.(data.GoSqlIdentifier).Parts[0])
 			if err != nil {
 				return nil, err
 			}
@@ -250,6 +250,9 @@ func CategorizePointer(ptr Value) (int, error) {
 	if v.Type() == reflect.TypeOf(time.Time{}) {
 		return TIMESTAMP, nil
 	}
+	if v.Type() == reflect.TypeOf(data.GoSqlIdentifier{}) {
+		return IDENTIFIER, nil
+	}
 
 	return -1, errors.New("Cannot categorize this")
 }
@@ -265,7 +268,7 @@ func (term *GoSqlTerm) handleLeaf(e *EvaluationContext) (int, error) {
 		return CategorizePointer(p)
 	}
 	if term.leaf.token == IDENTIFIER {
-		id := term.leaf.ptr.(string)
+		id := term.leaf.ptr.(GoSqlIdentifier).Parts[0]
 		if id == data.VersionedRecordId {
 			AddPushAttribute(e.m, -1)
 			return INTEGER, nil

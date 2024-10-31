@@ -7,6 +7,7 @@ import (
 
 // TestAggregationFunctions tests various SQL aggregation functions
 func TestAggregationFunctions(t *testing.T) {
+
 	// Open a connection to the database
 	db, err := sql.Open("GoSql", "http://localhost:8080")
 	if err != nil {
@@ -50,6 +51,11 @@ func TestAggregationFunctions(t *testing.T) {
 	// Run test cases
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			defer func() {
+				if r := recover(); r != nil {
+					t.Errorf("Test panicked: %v", r)
+				}
+			}()
 			var result int
 			err := db.QueryRow(tc.query).Scan(&result)
 			if err != nil {

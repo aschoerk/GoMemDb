@@ -4,10 +4,12 @@ package parser
 
 import (
     "bufio"
+    "fmt"
     "log"
     "io"
     "os"
     "strconv"
+    "strings"
     "time"
     "database/sql/driver"
 )
@@ -77,12 +79,14 @@ func (y *yylexer) Lex(lval *yySymType) int {
 
 WHITESPACE [ \t]+
 NEWLINE    \r?\n
-IDENTIFIER_REGEX [a-zA-Z][a-zA-Z0-9_]*|\"([^"\n]|\"\")+\" 
+IDENTIFIER        [a-zA-Z][a-zA-Z0-9_]*
+QUOTED_IDENTIFIER \"([^"\n]|\"\")+\"
 STRING_CONSTANT \'([^'\n]|\'\')*\'
 POSITIVE_DECIMAL_INTEGER_NUMBER [0-9]+
 FLOATING_POINT_NUMBER ^[-+]?([0-9]+(\.[0-9]*)?|\.[0-9]+)([eE][-+]?[0-9]+)?$
 DECIMAL_INTEGER_NUMBER ^[-+]?[0-9]+
 XML_TIMESTAMP ^(-[1-9][0-9]*|[1-9][0-9]{3,}|[0-9]{4})-(1[0-2]|0[1-9])-(3[01]|0[1-9]|[12][0-9])T(2[0-3]|[01][0-9]):([0-5][0-9]):([0-5][0-9])(\.[0-9]+)?(Z|[+-](2[0-3]|[01][0-9]):[0-5][0-9])?$
+
 
 %%
 
@@ -146,6 +150,14 @@ SUM { return SUM }
 AVG { return AVG }
 MIN { return MIN }
 MAX { return MAX }
+JOIN { return JOIN }
+OUTER { return OUTER }
+LEFT { return LEFT }
+RIGHT { return RIGHT }
+FULL { return FULL }
+INNER { return INNER }
+CROSS { return CROSS }
+ON { return ON }
 
 
 <BETWEEN_CONDITION>AND    { 
@@ -162,19 +174,32 @@ MAX { return MAX }
 
 {NEWLINE}       { line_num++; /* Count lines, but still ignore newlines */ }
 
-{IDENTIFIER_REGEX}    { yy.Context.lval.string = string(yytext); return IDENTIFIER }
+{IDENTIFIER}    {
+   yy.Context.lval.string = strings.ToLower(string(yytext));
+   return lexDebug(IDENTIFIER, yy, yytext)
+ }
 
-{STRING_CONSTANT}       { yy.Context.lval.string = string(yytext[1:len(yytext)-1]); return STRING }
+{QUOTED_IDENTIFIER}    {
+   yy.Context.lval.string =  strings.Replace(string(yytext[1:len(yytext)-1]), `""`, `"`, -1);
+   return lexDebug(IDENTIFIER, yy, yytext)
+ }
+
+
+{STRING_CONSTANT}       { yy.Context.lval.string = string(yytext[1:len(yytext)-1]); return lexDebug(STRING, yy, yytext) }
 
 {POSITIVE_DECIMAL_INTEGER_NUMBER}  { yy.Context.lval.int, _ = strconv.Atoi(string(yytext)); return POSITIVE_DECIMAL_INTEGER_NUMBER }
 
-\?|([:@]{IDENTIFIER_REGEX})|${POSITIVE_DECIMAL_INTEGER_NUMBER}  { yy.Context.lval.string = string(yytext); return PLACEHOLDER }
+\?|([:@]{IDENTIFIER})|${POSITIVE_DECIMAL_INTEGER_NUMBER}  {
+      yy.Context.lval.string = string(yytext);
+      return lexDebug(PLACEHOLDER, yy, yytext)
+   }
 
 {FLOATING_POINT_NUMBER}  { yy.Context.lval.float64, _ = strconv.ParseFloat(string(yytext),64); return FLOATING_POINT_NUMBER }
 
 {DECIMAL_INTEGER_NUMBER}  { yy.Context.lval.int, _ = strconv.Atoi(string(yytext)); return DECIMAL_INTEGER_NUMBER }
 
 {XML_TIMESTAMP} { yy.Context.lval.time, _ = time.Parse(time.RFC3339Nano,string(yytext)); return TIME_STAMP }
+
 
 \<\= { return LESS_OR_EQUAL}
 \<   { return LESS}
@@ -189,7 +214,13 @@ MAX { return MAX }
 \(   { return POPEN }
 \)   { return PCLOSE }
 \,   { return KOMMA }
+\.   { return DOT }
 
 %%
   
-
+func lexDebug(token YYtype, yy *Scanner, text []byte) YYtype {
+   if yy.debug {
+      fmt.Printf("Lex: token: %d, text: %s ", token, string(text))
+   }
+   return token
+}

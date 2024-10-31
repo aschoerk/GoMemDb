@@ -49,6 +49,7 @@ type GoSqlConnData struct {
 	Transaction           *Transaction
 	DoAutoCommit          bool
 	DefaultIsolationLevel TransactionIsolationLevel
+	CurrentSchema         string
 }
 
 type StatementInterface interface {
@@ -99,4 +100,35 @@ const (
 
 func NewStatementBaseData() BaseStatement {
 	return BaseStatement{StatementBaseData{nil, nil, Created}}
+}
+
+type GoSqlIdentifier struct {
+	Parts []string
+}
+
+func GetTable(stmt BaseStatement, id GoSqlIdentifier) (Table, bool) {
+	if len(id.Parts) == 1 {
+		res := Schemas[stmt.Conn.CurrentSchema][id.Parts[0]]
+		return res, res != nil
+	} else if len(id.Parts) == 2 {
+		if Schemas[id.Parts[0]] == nil {
+			return nil, false
+		} else {
+			res := Schemas[id.Parts[0]][id.Parts[1]]
+			return res, res != nil
+		}
+	} else {
+		return nil, false
+	}
+}
+
+func GetTempTable(name string) Table {
+	if Schemas[tempTableSchemaName] == nil {
+		return nil
+	}
+	return Schemas[tempTableSchemaName][name]
+}
+
+func DeleteTempTable(name string) {
+	delete(Schemas[tempTableSchemaName], name)
 }

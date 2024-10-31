@@ -23,7 +23,7 @@ type GoSqlConn struct {
 }
 
 func (d *GoSqlDriver) Open(s string) (driver.Conn, error) {
-	return &GoSqlConn{data.GoSqlConnData{d.connectionNumber.Add(1), nil, true, d.DefaultIsolationLevel}}, nil
+	return &GoSqlConn{data.GoSqlConnData{d.connectionNumber.Add(1), nil, true, d.DefaultIsolationLevel, "public"}}, nil
 }
 
 func (c *GoSqlConn) Begin() (driver.Tx, error) {
