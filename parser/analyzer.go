@@ -103,7 +103,6 @@ func (r *GoSqlSelectRequest) analyze() ([]SLE, error) {
 		}
 	}
 	return nil, nil
-
 }
 
 type SLE interface {

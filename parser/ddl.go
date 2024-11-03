@@ -45,7 +45,7 @@ func (r *GoSqlCreateTableRequest) Exec(args []Value) (Result, error) {
 	_, exists := Schemas[r.table.SchemaName][r.table.Name()]
 	if exists {
 		if r.ifExists == 1 {
-			return GoSqlResult{-1, -1}, fmt.Errorf("table %s already exists", r.table.Name())
+			return GoSqlResult{-1, -1}, fmt.Errorf("joinExpr %s already exists", r.table.Name())
 		}
 	} else {
 		Schemas[r.table.SchemaName][r.table.Name()] = r.table

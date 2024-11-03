@@ -201,7 +201,7 @@ func (r *GoSqlDeleteRequest) NumInput() int {
 func (r *GoSqlDeleteRequest) Exec(args []Value) (Result, error) {
 	table, exists := data.GetTable(r.BaseStatement, r.from[0].Id.Id)
 	if !exists {
-		return nil, fmt.Errorf("Unknown Table %s", r.from)
+		return nil, fmt.Errorf("Unknown Table %v", r.from)
 	}
 	placeHolders := []*GoSqlTerm{}
 	if r.where != nil {

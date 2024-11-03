@@ -51,11 +51,7 @@ func TestAggregationFunctions(t *testing.T) {
 	// Run test cases
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			defer func() {
-				if r := recover(); r != nil {
-					t.Errorf("Test panicked: %v", r)
-				}
-			}()
+			defer catchPanic(t)
 			var result int
 			err := db.QueryRow(tc.query).Scan(&result)
 			if err != nil {
@@ -68,9 +64,4 @@ func TestAggregationFunctions(t *testing.T) {
 		})
 	}
 
-	// Clean up: drop the test table
-	_, err = db.Exec("DROP TABLE test_data")
-	if err != nil {
-		t.Fatalf("Failed to drop test table: %v", err)
-	}
 }

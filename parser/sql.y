@@ -244,8 +244,8 @@ select_list_entry_alias:
     { $$ = $2}
 
 table_identification: identifier { $$ = GoSqlAsIdentifier{$1, ""} }
-     | identifier AS IDENTIFIER
-     { $$ = GoSqlAsIdentifier{$1, $3} }
+     | identifier IDENTIFIER
+     { $$ = GoSqlAsIdentifier{$1, $2} }
 
 join_mode:
    JOIN

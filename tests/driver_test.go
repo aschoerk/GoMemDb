@@ -97,6 +97,7 @@ func TestSQLDriver(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			defer catchPanic(t)
 			// Insert data
 			_, err := db.Exec(tc.insertQuery, tc.insertArgs...)
 			if err != nil {

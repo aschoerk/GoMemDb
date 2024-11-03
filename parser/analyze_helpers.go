@@ -99,3 +99,20 @@ func getLeafs(in *GoSqlTerm, stopTerms []*GoSqlTerm, res []*GoSqlTerm) []*GoSqlT
 	res = getLeafs(in.right, stopTerms, res)
 	return res
 }
+
+func findIdentifiers(in *GoSqlTerm, t []*GoSqlTerm) []*GoSqlTerm {
+	if in == nil {
+		return t
+	}
+	if in.leaf != nil && in.leaf.token == IDENTIFIER {
+		return append(t, in)
+	}
+	tmpT := t
+	if in.left != nil {
+		tmpT = findIdentifiers(in.left, t)
+	}
+	if in.right != nil {
+		tmpT = findIdentifiers(in.right, tmpT)
+	}
+	return tmpT
+}

@@ -98,7 +98,7 @@ func collectAggregation(r *GoSqlSelectRequest) ([]AggTermsBySelectListEntry, err
 // if one select list entry uses:
 //
 //	all select list entry must be aggregations or constant expressions
-//	arguments of aggregations build the select list for the first temporary table. * stands for id (internal)
+//	arguments of aggregations build the select list for the first temporary joinExpr. * stands for id (internal)
 //	the aggregation functions are evaluated over the corresponding select list entry
 //	the term around the aggregation is evaluated to create together with the constant entries the new result of one record.
 func buildAggregationSelectList(r *GoSqlSelectRequest) ([]*GoSqlTerm, []SLName, []AggTermsBySelectListEntry, error) {
