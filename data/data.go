@@ -37,6 +37,7 @@ type GoSqlColumn struct {
 }
 
 type TableIterator interface {
+	GetTable() Table
 	Next(func([]driver.Value) (bool, error)) (Tuple, bool, error)
 }
 
@@ -192,6 +193,9 @@ func (t *TempTable) NewIterator(baseData *StatementBaseData, forChange bool) Tab
 	res := TempTableIterator{t, 0}
 	return &res
 }
+func (tIt *TempTableIterator) GetTable() Table {
+	return tIt.table
+}
 
 func (t *GoSqlTable) NewIterator(baseData *StatementBaseData, forChange bool) TableIterator {
 	if forChange {
@@ -213,6 +217,10 @@ func (t *GoSqlTable) NewIterator(baseData *StatementBaseData, forChange bool) Ta
 	defer t.mu.Unlock()
 	t.iterators = append(t.iterators, &res)
 	return &res
+}
+
+func (tIt *GoSqlTableIterator) GetTable() Table {
+	return tIt.table
 }
 
 var ErrTraSerialization error = errors.New("SerializationError")

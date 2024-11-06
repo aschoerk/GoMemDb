@@ -4,6 +4,9 @@ import (
 	"database/sql/driver"
 	"fmt"
 	"github.com/aschoerk/go-sql-mem/data"
+	"slices"
+	"sort"
+	"time"
 )
 
 // identify tables plus aliases
@@ -30,16 +33,17 @@ type IdentifierMapEntry struct {
 }
 
 type GoSqlFromHandler struct {
-	baseStmt      data.BaseStatement
-	fromSpec      []*GoSqlFromSpec
-	identifierMap map[*GoSqlTerm]IdentifierMapEntry
-	fromExprs     []*FromExpr
-	equalJoins    []equalJoin
+	baseStmt       data.BaseStatement
+	fromSpec       []*GoSqlFromSpec
+	identifierMap  map[*GoSqlTerm]IdentifierMapEntry
+	fromExprs      []*FromExpr
+	equalJoinParts []equalJoinPart
 }
 
 type JoinExpr struct {
 	joinType  int
 	table     data.Table
+	isOuter   bool
 	joinCols  []int
 	as        string
 	condition *GoSqlTerm
@@ -52,7 +56,7 @@ type FromExpr struct {
 func (g *GoSqlFromHandler) identifyTable(identifier GoSqlAsIdentifier) (*JoinExpr, bool) {
 	as := identifier.As
 	table, exists := data.GetTable(g.baseStmt, identifier.Id)
-	return &JoinExpr{0, table, []int{}, as, nil}, exists
+	return &JoinExpr{0, table, false, []int{}, as, nil}, exists
 }
 
 func (g *GoSqlFromHandler) Init(selectStatement *GoSqlSelectRequest) []error {
@@ -68,6 +72,135 @@ func (g *GoSqlFromHandler) Init(selectStatement *GoSqlSelectRequest) []error {
 	return errs
 }
 
+type JoinViewData struct {
+	table   data.Table
+	isOuter bool
+	values  [][]driver.Value
+}
+
+func lessThan(a, b []driver.Value) bool {
+	for ix := 1; ix < len(a); ix++ {
+		v := a[ix]
+		w := b[ix]
+		if v != w {
+			switch v.(type) {
+			case int64:
+				return v.(int64) < w.(int64)
+			case float64:
+				return v.(float64) < w.(float64)
+			case string:
+				return v.(string) < w.(string)
+			case bool:
+				return !v.(bool)
+			case time.Time:
+				return v.(time.Time).Before(w.(time.Time))
+			default:
+				panic("unsupported type")
+			}
+		}
+	}
+	return false
+}
+
+func sortView(arr [][]driver.Value) {
+	sort.Slice(arr, func(i, j int) bool {
+		a := arr[i]
+		b := arr[j]
+		return lessThan(a, b)
+	})
+}
+
+func getJoinView(cols []int, isOuter bool, it data.TableIterator) (*JoinViewData, error) {
+	var values = make([][]driver.Value, 0)
+	for {
+		tuple, found, err := it.Next(func(value []driver.Value) (bool, error) {
+			return true, nil
+		})
+		if err != nil {
+			return nil, err
+			break
+		}
+		if !found {
+			break
+		}
+		view := make([]driver.Value, len(cols)+1)
+		view[0] = tuple.Id
+		for i, col := range cols {
+			view[i+1] = tuple.Data[col]
+		}
+		values = append(values, view)
+	}
+	sortView(values)
+	return &JoinViewData{it.GetTable(), isOuter, values}, nil
+}
+
+func createIdView(left, right *JoinViewData) [][]int64 {
+	res := make([][]int64, 0)
+	rightLen, leftLen := len(right.values), len(left.values)
+	if rightLen == 0 || leftLen == 0 {
+		return res
+	}
+	rix, lix := 0, 0
+
+	for lix < leftLen && rix < rightLen {
+		leftValue, rightValue := left.values[lix], right.values[rix]
+		leftId, rightId := leftValue[0].(int64), rightValue[0].(int64)
+
+		switch {
+		case lessThan(leftValue, rightValue):
+			if left.isOuter {
+				res = append(res, []int64{leftId, -1})
+			}
+			lix++
+		case lessThan(rightValue, leftValue):
+			if right.isOuter {
+				res = append(res, []int64{-1, rightId})
+			}
+			rix++
+		default: // values are equal
+			// Handle all equal values
+			rightStart := rix
+			for {
+				for rix < rightLen && !lessThan(leftValue, right.values[rix]) {
+					res = append(res, []int64{leftId, right.values[rix][0].(int64)})
+					rix++
+				}
+				lix++ // move to next left, if equal to current, reset rix
+				if lix < leftLen {
+					leftValue = left.values[lix]
+					leftId = leftValue[0].(int64)
+					if !lessThan(leftValue, right.values[rightStart]) && !lessThan(right.values[rightStart], leftValue) {
+						rix = rightStart
+					} else {
+						break
+					}
+				} else {
+					break
+				}
+
+			}
+		}
+	}
+
+	// Handle remaining left values (outer join)
+	if left.isOuter {
+		for ; lix < leftLen; lix++ {
+			leftId := left.values[lix][0].(int64)
+			res = append(res, []int64{leftId, -1})
+		}
+	}
+
+	// Handle remaining right values (outer join)
+	if right.isOuter {
+		for ; rix < rightLen; rix++ {
+			rightId := right.values[rix][0].(int64)
+			res = append(res, []int64{-1, rightId})
+		}
+	}
+
+	return res
+}
+
 func (g *GoSqlFromHandler) handlePureEqualJoins() (bool, []error) {
 	b, errors := g.isPureEqualJoin()
 	if !b {
@@ -77,39 +210,134 @@ func (g *GoSqlFromHandler) handlePureEqualJoins() (bool, []error) {
 	// what happens if a record is used more than once for a join
 	// what happens if more than one attribute is used: decide about concatenated key.
 	pairs := g.createPairs()
+	errors = g.enhanceEqualJoinByIdPairs(pairs, errors)
+	g.createJoinedRecord(pairs)
+	// search equal joins
+	return false, errors
+}
+
+func mergeToRecords(joinedRecord *JoinedRecord, matchColumn int, pairs [][]int64, pairMatchColumn int) {
+	records := joinedRecord.records
+	leftLen, rightLen := len(records), len(pairs)
+	sort.Slice(records, func(i, j int) bool {
+		return records[i][matchColumn] < records[j][matchColumn]
+	})
+	sort.Slice(pairs, func(i, j int) bool {
+		return pairs[i][pairMatchColumn] < pairs[j][pairMatchColumn]
+	})
+	lix, rix := 0, 0
+	for lix < leftLen && rix < rightLen {
+		leftValue, rightValue := records[lix][matchColumn], pairs[rix][pairMatchColumn]
+		switch {
+		case leftValue == rightValue:
+			firstLeftEntry := records[lix]
+			records[lix] = append(firstLeftEntry, pairs[rix][1-pairMatchColumn])
+			rix++
+			for rix < rightLen && pairs[rix][pairMatchColumn] == leftValue {
+				records = append(records, append(firstLeftEntry, pairs[rix][1-pairMatchColumn]))
+				rix++
+			}
+			lix++
+		case leftValue < rightValue:
+			// no matching, remove if no outer join by this table, else keep
+			lix++
+		case rightValue > leftValue:
+			// no matching of the pair ignore if there is no outer join
+			rix++
+		}
+	}
+	newRecords := [][]int64{}
+	for _, record := range records {
+		if len(record) == leftLen {
+			var ix int
+			for ix = 0; ix < leftLen; ix++ {
+				if record[ix] != -1 && joinedRecord.joinExpr[ix].isOuter {
+					newRecords = append(newRecords, append(record, -1))
+					break
+				}
+			}
+		} else {
+			newRecords = append(newRecords, record)
+		}
+	}
+	joinedRecord.records = newRecords
+}
+
+func (g *GoSqlFromHandler) createJoinedRecord(pairs []*equalJoin) JoinedRecord {
+	res := JoinedRecord{[]*JoinExpr{}, [][]int64{}}
+	for _, pair := range pairs {
+		left := pair.exprs[0].left.joinExpr
+		if !slices.Contains(res.joinExpr, left) {
+			res.joinExpr = append(res.joinExpr, left)
+		}
+		right := pair.exprs[0].right.joinExpr
+		if !slices.Contains(res.joinExpr, right) {
+			res.joinExpr = append(res.joinExpr, right)
+		}
+	}
+	first := true
+	for _, pair := range pairs {
+		if first {
+			first = false
+			left := pair.exprs[0].left.joinExpr
+			res.joinExpr = append(res.joinExpr, left)
+			right := pair.exprs[0].right.joinExpr
+			res.joinExpr = append(res.joinExpr, right)
+			for _, v := range pair.idView {
+				res.records = append(res.records, v)
+			}
+		} else {
+			// identify matching column
+			ix := slices.Index(res.joinExpr, pair.exprs[0].left.joinExpr)
+			if ix < 0 {
+				ix = slices.Index(res.joinExpr, pair.exprs[0].right.joinExpr)
+				mergeToRecords(&res, ix, pair.idView, 1)
+			} else {
+				mergeToRecords(&res, ix, pair.idView, 0)
+			}
+
+		}
+
+	}
+	return res
+}
+
+type JoinedRecord struct {
+	joinExpr []*JoinExpr
+	records  [][]int64
+}
+
+func (g *GoSqlFromHandler) enhanceEqualJoinByIdPairs(pairs []*equalJoin, errors []error) []error {
 	for _, pair := range pairs {
 		leftIx := []int{}
 		rightIx := []int{}
-		for _, join := range pair {
+		for _, join := range pair.exprs {
 			leftIx = append(leftIx, join.left.colix)
 			rightIx = append(rightIx, join.right.colix)
 		}
-		leftIt := pair[0].left.joinExpr.table.NewIterator(g.baseStmt.BaseData(), false)
 
-		for {
-			tuple, found, err := leftIt.Next(func(value []driver.Value) (bool, error) {
-				return true, nil
-			})
+		part := pair.exprs[0]
+		leftJoinView, err := getJoinView(leftIx, part.left.joinExpr.isOuter, part.left.joinExpr.table.NewIterator(g.baseStmt.BaseData(), false))
+		if err != nil {
+			errors = append(errors, err)
+		} else {
+			rightJoinView, err := getJoinView(rightIx, part.right.joinExpr.isOuter, part.right.joinExpr.table.NewIterator(g.baseStmt.BaseData(), false))
 			if err != nil {
 				errors = append(errors, err)
-				break
+			} else {
+				pair.idView = createIdView(leftJoinView, rightJoinView)
 			}
-			if !found {
-				break
-			}
-
 		}
 
 		// find ind
 		// create sorted list of entries in le
 	}
-	// search equal joins
-	return false, errors
+	return errors
 }
 
-func (g *GoSqlFromHandler) createPairs() [][]equalJoin {
-	perPair := [][]equalJoin{}
-	for _, join := range g.equalJoins {
+func (g *GoSqlFromHandler) createPairs() []*equalJoin {
+	perPair := [][]equalJoinPart{}
+	for _, join := range g.equalJoinParts {
 		found := false
 		for ix, pairs := range perPair {
 			if len(pairs) > 0 {
@@ -120,30 +348,41 @@ func (g *GoSqlFromHandler) createPairs() [][]equalJoin {
 					found = true
 					break
 				} else if left == join.right.joinExpr && right == join.left.joinExpr {
-					perPair[ix] = append(perPair[ix], equalJoin{join.right, join.left})
+					perPair[ix] = append(perPair[ix], equalJoinPart{join.right, join.left})
 					found = true
 					break
 				}
 			}
 		}
 		if !found {
-			perPair = append(perPair, []equalJoin{join})
+			perPair = append(perPair, []equalJoinPart{join})
 		}
 	}
-	return perPair
+	res := make([]*equalJoin, len(perPair))
+	for pairix, pair := range perPair {
+		res[pairix] = &equalJoin{pair, nil}
+	}
+	return res
+}
+
+type equalJoinPart struct {
+	left  IdentifierMapEntry
+	right IdentifierMapEntry
 }
 
 type equalJoin struct {
-	left  IdentifierMapEntry
-	right IdentifierMapEntry
+	exprs  []equalJoinPart
+	idView [][]int64
 }
 
 func (g *GoSqlFromHandler) onlyEqualJoinExpression(term *GoSqlTerm) bool {
 	if term.left != nil && term.right != nil {
 		if term.operator == AND {
 			leftOk := g.onlyEqualJoinExpression(term.left)
-			if !leftOk {
+			if leftOk {
 				return g.onlyEqualJoinExpression(term.right)
+			} else {
+				return false
 			}
 		} else if term.operator == EQUAL {
 			leftIdentifierData, ok := g.identifierMap[term.left]
@@ -153,7 +392,7 @@ func (g *GoSqlFromHandler) onlyEqualJoinExpression(term *GoSqlTerm) bool {
 			rightIdentifierData, ok := g.identifierMap[term.right]
 			if leftIdentifierData.joinExpr != rightIdentifierData.joinExpr {
 				// Equal Join using different bases (even if in case of selfjoin the table might be the same)
-				g.equalJoins = append(g.equalJoins, equalJoin{leftIdentifierData, rightIdentifierData})
+				g.equalJoinParts = append(g.equalJoinParts, equalJoinPart{leftIdentifierData, rightIdentifierData})
 				return true
 			} else {
 				return false
@@ -161,18 +400,19 @@ func (g *GoSqlFromHandler) onlyEqualJoinExpression(term *GoSqlTerm) bool {
 		} else {
 			return false
 		}
-	}
-	if term.left != nil || term.right != nil {
+	} else if term.left != nil || term.right != nil {
 		return false
+	} else {
+		return term.leaf.token == IDENTIFIER
 	}
-
 }
 
 func (g *GoSqlFromHandler) isPureEqualJoin() (bool, []error) {
 	if len(g.fromExprs) > 1 {
 		return false, nil
 	}
-	for _, expr := range g.fromExprs[0].joinExprs {
+	for ix := 1; ix < len(g.fromExprs[0].joinExprs); ix++ {
+		expr := g.fromExprs[0].joinExprs[ix]
 		if expr.joinType == CROSS {
 			return false, nil
 		}
@@ -226,6 +466,16 @@ func (g *GoSqlFromHandler) checkAndInitDataStructures(selectStatement *GoSqlSele
 			if joinExpr.joinType == CROSS && joinSpec.JoinCondition != nil {
 				errs = append(errs, fmt.Errorf("cross join condition defined for joinExpr %v", spec.Id))
 			} else {
+				actFromExpr := g.fromExprs[len(g.fromExprs)-1]
+				switch joinExpr.joinType {
+				case RIGHT:
+					joinExpr.isOuter = true
+				case FULL:
+					joinExpr.isOuter = true
+					actFromExpr.joinExprs[len(actFromExpr.joinExprs)-1].isOuter = true
+				case LEFT:
+					actFromExpr.joinExprs[len(actFromExpr.joinExprs)-1].isOuter = true
+				}
 				condition := joinSpec.JoinCondition
 				joinExpr.condition = condition
 				aggr := findAggregateTerms(condition, nil)
@@ -235,7 +485,6 @@ func (g *GoSqlFromHandler) checkAndInitDataStructures(selectStatement *GoSqlSele
 				identifierTerms := findIdentifiers(condition, nil)
 				for _, identifierTerm := range identifierTerms {
 					id := identifierTerm.leaf.ptr.(data.GoSqlIdentifier)
-					actFromExpr := g.fromExprs[len(g.fromExprs)-1]
 					var matchedJoinExpr *JoinExpr
 					var matchIx int = -1
 					for _, joinExpr := range actFromExpr.joinExprs {

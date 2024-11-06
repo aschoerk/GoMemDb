@@ -86,7 +86,7 @@ func Test(t *testing.T) {
 			r.BaseData().Conn = &data.GoSqlConnData{CurrentSchema: "public"}
 			fromHandler := parser.GoSqlFromHandler{}
 			errs := fromHandler.Init(r)
-			assert.Equal(t, len(errs), tt.errsNo)
+			assert.Equal(t, tt.errsNo, len(errs))
 		})
 	}
 
