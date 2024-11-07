@@ -66,7 +66,7 @@ func pointerToInt(ptr interface{}) (int64, error) {
 
 	switch v.Kind() {
 	case reflect.String:
-		// Try to parse the string as an integer
+		// Try to parse the string alias an integer
 		i, err := strconv.ParseInt(v.String(), 10, 64)
 		if err != nil {
 			return 0, fmt.Errorf("cannot convert string to int: %v", err)
@@ -102,7 +102,7 @@ func pointerToTime(ptr interface{}) (time.Time, error) {
 
 	switch v.Kind() {
 	case reflect.String:
-		// Try to parse the string as a time
+		// Try to parse the string alias a time
 		t, err := time.Parse(time.RFC3339, v.String())
 		if err != nil {
 			// If RFC3339 fails, try Unix timestamp
@@ -114,10 +114,10 @@ func pointerToTime(ptr interface{}) (time.Time, error) {
 		}
 		return t, nil
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		// Treat as Unix timestamp
+		// Treat alias Unix timestamp
 		return time.Unix(v.Int(), 0), nil
 	case reflect.Float32, reflect.Float64:
-		// Treat as Unix timestamp with fractional seconds
+		// Treat alias Unix timestamp with fractional seconds
 		sec, frac := math.Modf(v.Float())
 		return time.Unix(int64(sec), int64(frac*1e9)), nil
 	default:
@@ -144,7 +144,7 @@ func pointerToFloat(ptr interface{}) (float64, error) {
 
 	switch v.Kind() {
 	case reflect.String:
-		// Try to parse the string as a float
+		// Try to parse the string alias a float
 		f, err := strconv.ParseFloat(v.String(), 64)
 		if err != nil {
 			return 0, fmt.Errorf("cannot convert string to float: %v", err)

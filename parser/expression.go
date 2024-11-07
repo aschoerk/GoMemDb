@@ -115,7 +115,7 @@ func initPlaceHolders(terms []*GoSqlTerm, args []driver.Value, placeHolderOffset
 	for _, term := range terms {
 		placeHolders = term.FindPlaceHolders(placeHolders)
 	}
-	// set placeholder values by first set of args to function as templates for the type
+	// set placeholder values by first set of args to function alias templates for the type
 	for _, placeHolder := range placeHolders {
 		placeHolder.leaf.ptr = args[*placeHolderOffset]
 		*placeHolderOffset++
@@ -404,7 +404,7 @@ func calcOperationCommand(opType int, destType int, leftType int, rightType int)
 		}
 	case LIKE:
 		if rightType != STRING {
-			return nil, errors.New("expected string as right operand of like")
+			return nil, errors.New("expected string alias right operand of like")
 		}
 		return LikeStrings, nil
 	default:

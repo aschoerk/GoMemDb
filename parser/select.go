@@ -118,7 +118,7 @@ func buildAggregationSelectList(r *GoSqlSelectRequest) ([]*GoSqlTerm, []SLName, 
 					resNames = append(resNames, SLName{name, false})
 				} else {
 					if t.operator != COUNT {
-						return nil, nil, nil, errors.New("expecting only COUNT as function if parameter is asterisk")
+						return nil, nil, nil, errors.New("expecting only COUNT alias function if parameter is asterisk")
 					} else {
 						res = append(res, &GoSqlTerm{-1, nil, nil, &Ptr{data.GoSqlIdentifier{[]string{data.VersionedRecordId}}, IDENTIFIER}})
 						resNames = append(resNames, SLName{name, false})
@@ -583,7 +583,7 @@ func (r *GoSqlSelectRequest) createAndFillTempTable(
 					return false, err
 				}
 				if result == nil {
-					return false, errors.New("expected not nil as evaluation of where")
+					return false, errors.New("expected not nil alias evaluation of where")
 				}
 				whereResult, ok := result.(bool)
 				if ok {

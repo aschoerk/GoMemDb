@@ -15,7 +15,7 @@ type GoSqlUpdateRequest struct {
 	updates      []GoSqlUpdateSpec
 	where        *GoSqlTerm
 	terms        []*GoSqlTerm
-	placeHolders []*GoSqlTerm // the terms identified as placeholders by parser
+	placeHolders []*GoSqlTerm // the terms identified alias placeholders by parser
 	columnixs    []int        // index in tuple, where update should happen
 	table        data.Table
 }
@@ -55,7 +55,7 @@ func (r *GoSqlUpdateRequest) initStruct() error {
 		}
 		r.table = tmptable
 		r.terms = []*GoSqlTerm{}
-		r.placeHolders = []*GoSqlTerm{} // the terms identified as placeholders by parser
+		r.placeHolders = []*GoSqlTerm{} // the terms identified alias placeholders by parser
 		r.columnixs = []int{}           // index in tuple, where update should happen
 		for _, u := range r.updates {
 			r.placeHolders = u.term.FindPlaceHolders(r.placeHolders)
@@ -161,7 +161,7 @@ func (r *GoSqlUpdateRequest) Exec(args []Value) (Result, error) {
 			}
 			whereResult, ok := res.(bool)
 			if !ok {
-				return false, fmt.Errorf("expected boolean expression as where term")
+				return false, fmt.Errorf("expected boolean expression alias where term")
 			}
 			return whereResult, nil
 		})
@@ -223,7 +223,7 @@ func (r *GoSqlDeleteRequest) Exec(args []Value) (Result, error) {
 			}
 			whereResult, ok := res.(bool)
 			if !ok {
-				return false, fmt.Errorf("expected boolean expression as where term")
+				return false, fmt.Errorf("expected boolean expression alias where term")
 			}
 			return whereResult, nil
 		})

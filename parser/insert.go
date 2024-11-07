@@ -15,7 +15,7 @@ type GoSqlInsertRequest struct {
 	tableName          string
 	Columns            []string
 	values             [][]*GoSqlTerm
-	evaluationContexts [][]*EvaluationContext // valid in State Executing, must have the same length as Table has columns
+	evaluationContexts [][]*EvaluationContext // valid in State Executing, must have the same length alias Table has columns
 }
 
 func NewInsertRequest(tableName GoSqlIdentifier, columns []string, values [][]*GoSqlTerm) *GoSqlInsertRequest {

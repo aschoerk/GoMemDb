@@ -20,51 +20,52 @@ func Test(t *testing.T) {
 	}
 
 	tc := []struct {
-		stmt   string
-		errsNo int
+		stmt     string
+		errsNo   int
+		tablesNo int
 	}{
 		{
 			`SELECT b.title, a.name AS author_name
 					FROM books b
 							 INNER JOIN authors a ON b.author_id = a.id`,
-			0,
+			0, 2,
 		},
 		{
 			`SELECT b.title, a.name AS author_name
 					FROM books b
 							 INNER JOIN authors b ON b.author_id = a.id`,
-			2, // alias b is duplicate, a.id can not be found
+			2, 0, // alias b is duplicate, a.id can not be found
 		},
 		{
 			`SELECT b.title, p.name AS publisher_name
 					FROM books b
 					 JOIN book_publishers bp ON b.id = bp.book_id
 					 JOIN publishers p ON bp.publisher_id = p.id`,
-			0,
+			0, 3,
 		},
 		{
 			`SELECT a.name AS author_name, b.title
 					FROM authors a
 							 LEFT JOIN books b ON a.id = b.author_id`,
-			0,
+			0, 2,
 		},
 		{
 			`SELECT b.title, a.name AS author_name
 					FROM books b
 							 RIGHT JOIN authors a ON b.author_id = a.id`,
-			0,
+			0, 2,
 		},
 		{
 			`SELECT a.name AS author_name, p.name AS publisher_name
 					FROM authors a
 							 CROSS JOIN publishers p`,
-			0,
+			0, 2,
 		},
 		{
 			`SELECT a1.name AS author, a2.name AS mentor
 					FROM authors a1
 							 LEFT JOIN authors a2 ON a1.id = a2.id + 1`,
-			0,
+			0, 2,
 		},
 		{
 			`SELECT b.title, a.name AS author_name, p.name AS publisher_name, bp.contract_year
@@ -73,7 +74,7 @@ func Test(t *testing.T) {
 							 JOIN book_publishers bp ON b.id = bp.book_id
 							 JOIN publishers p ON bp.publisher_id = p.id
 					WHERE b.publication_year > 2000 AND bp.contract_year > b.publication_year`,
-			0,
+			0, 4,
 		},
 	}
 
@@ -86,6 +87,7 @@ func Test(t *testing.T) {
 			r.BaseData().Conn = &data.GoSqlConnData{CurrentSchema: "public"}
 			fromHandler := parser.GoSqlFromHandler{}
 			errs := fromHandler.Init(r)
+
 			assert.Equal(t, tt.errsNo, len(errs))
 		})
 	}

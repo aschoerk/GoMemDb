@@ -2,28 +2,29 @@ package parser
 
 import (
 	"database/sql/driver"
+	"github.com/aschoerk/go-sql-mem/data"
 	"github.com/stretchr/testify/assert"
 	"testing"
 )
 
-func dv(v ...[]driver.Value) [][]driver.Value {
-	res := make([][]driver.Value, len(v))
+func dv(v ...data.Tuple) *TableViewData {
+	res := make([]*data.Tuple, len(v))
 	for i := range v {
-		res[i] = v[i]
+		res[i] = &v[i]
 	}
-	return res
+	return &TableViewData{cols: []int{0, 1, 2, 3, 4}[:len(v[0].Data)], tuples: res}
 }
 
-func v(a ...driver.Value) []driver.Value {
-	res := make([]driver.Value, len(a))
-	for i := 0; i < len(a); i++ {
+func v(a ...driver.Value) data.Tuple {
+	res := data.Tuple{int64(a[0].(int)), make([]driver.Value, len(a)-1)}
+	for i := 1; i < len(a); i++ {
 		switch a[i].(type) {
 		case int:
-			res[i] = int64(a[i].(int))
+			res.Data[i-1] = int64(a[i].(int))
 		case float32:
-			res[i] = float64(a[i].(float32))
+			res.Data[i-1] = float64(a[i].(float32))
 		default:
-			res[i] = a[i]
+			res.Data[i-1] = a[i]
 		}
 	}
 	return res
@@ -31,10 +32,10 @@ func v(a ...driver.Value) []driver.Value {
 
 func Test_createIdView(t *testing.T) {
 	type args struct {
-		left  *JoinViewData
-		right *JoinViewData
+		left  *TableViewData
+		right *TableViewData
 	}
-	empty := dv()
+	empty := &TableViewData{cols: []int{}, tuples: []*data.Tuple{}}
 	tests := []struct {
 		name string
 		args args
@@ -43,78 +44,89 @@ func Test_createIdView(t *testing.T) {
 		{
 			name: "leftempty",
 			args: args{
-				&JoinViewData{nil, false, empty},
-				&JoinViewData{nil, false, dv(v(1, 1))}},
+				empty,
+				dv(v(1, 1))},
 			want: [][]int64{},
 		},
 		{
 			name: "rightempty",
 			args: args{
-				&JoinViewData{nil, false, dv(v(1, 1))},
-				&JoinViewData{nil, false, empty}},
+				dv(v(1, 1)),
+				empty},
 			want: [][]int64{},
 		},
 		{
 			name: "onlyonematching",
 			args: args{
-				&JoinViewData{nil, false, dv(v(1, 1))},
-				&JoinViewData{nil, false, dv(v(1, 1))}},
+				dv(v(1, 1)),
+				dv(v(1, 1))},
 			want: [][]int64{{1, 1}},
 		},
 		{
 			name: "onlytwomatching",
 			args: args{
-				&JoinViewData{nil, false, dv(v(1, 1), v(2, 2))},
-				&JoinViewData{nil, false, dv(v(1, 1), v(2, 2))}},
+				dv(v(1, 1), v(2, 2)),
+				dv(v(1, 1), v(2, 2))},
 			want: [][]int64{{1, 1}, {2, 2}},
 		},
 		{
 			name: "twomatchingwithm2n",
 			args: args{
-				&JoinViewData{nil, false, dv(v(1, 1), v(2, 1), v(3, 2))},
-				&JoinViewData{nil, false, dv(v(1, 1), v(2, 2))}},
+				dv(v(1, 1), v(2, 1), v(3, 2)),
+				dv(v(1, 1), v(2, 2))},
 			want: [][]int64{{1, 1}, {2, 1}, {3, 2}},
 		},
 		{
 			name: "twomatchingwithm2nx2",
 			args: args{
-				&JoinViewData{nil, false, dv(v(1, 1), v(2, 1), v(3, 2), v(4, 3), v(5, 3), v(6, 4))},
-				&JoinViewData{nil, false, dv(v(1, 1), v(2, 2), v(3, 3), v(4, 4))}},
+				dv(v(1, 1), v(2, 1), v(3, 2), v(4, 3), v(5, 3), v(6, 4)),
+				dv(v(1, 1), v(2, 2), v(3, 3), v(4, 4))},
 			want: [][]int64{{1, 1}, {2, 1}, {3, 2}, {4, 3}, {5, 3}, {6, 4}},
 		},
 		{
 			name: "twomatchingwithm2nvize",
 			args: args{
-				&JoinViewData{nil, false, dv(v(1, 1), v(2, 2))},
-				&JoinViewData{nil, false, dv(v(1, 1), v(2, 1), v(3, 2))}},
+				dv(v(1, 1), v(2, 2)),
+				dv(v(1, 1), v(2, 1), v(3, 2))},
 			want: [][]int64{{1, 1}, {1, 2}, {2, 3}},
 		},
 		{
 			name: "multipleleftmatchingwithmultipleright",
 			args: args{
-				&JoinViewData{nil, false, dv(v(1, 1), v(2, 1), v(3, 2))},
-				&JoinViewData{nil, false, dv(v(1, 1), v(2, 1), v(3, 1), v(4, 3))}},
+				dv(v(1, 1), v(2, 1), v(3, 2)),
+				dv(v(1, 1), v(2, 1), v(3, 1), v(4, 3))},
 			want: [][]int64{{1, 1}, {1, 2}, {1, 3}, {2, 1}, {2, 2}, {2, 3}},
 		},
 		{
 			name: "multipleleftmatchingwithmultipleright",
 			args: args{
-				&JoinViewData{nil, false, dv(v(0, 0), v(1, 1), v(2, 1), v(3, 2))},
-				&JoinViewData{nil, false, dv(v(1, 1), v(2, 1), v(3, 1), v(4, 3))}},
+				dv(v(0, 0), v(1, 1), v(2, 1), v(3, 2)),
+				dv(v(1, 1), v(2, 1), v(3, 1), v(4, 3))},
 			want: [][]int64{{1, 1}, {1, 2}, {1, 3}, {2, 1}, {2, 2}, {2, 3}},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equalf(t, tt.want, createIdView(tt.args.left, tt.args.right), "createIdView(%v, %v)", tt.args.left, tt.args.right)
+			t2int64 := func(t [][]*data.Tuple) [][]int64 {
+				res := [][]int64{}
+				for _, ts := range t {
+					row := make([]int64, len(ts))
+					for ti, t := range ts {
+						row[ti] = t.Id
+					}
+					res = append(res, row)
+				}
+				return res
+			}
+			assert.Equalf(t, tt.want, t2int64(createIdView(tt.args.left, tt.args.right)), "createIdView(%v, %v)", tt.args.left, tt.args.right)
 		})
 	}
 }
 
 func Test_lessThan(t *testing.T) {
 	type args struct {
-		a []driver.Value
-		b []driver.Value
+		a data.Tuple
+		b data.Tuple
 	}
 	tests := []struct {
 		name string
@@ -148,7 +160,7 @@ func Test_lessThan(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equalf(t, tt.want, lessThan(tt.args.a, tt.args.b), "lessThan(%v, %v)", tt.args.a, tt.args.b)
+			assert.Equalf(t, tt.want, lessThan(dv(tt.args.a), dv(tt.args.b), &tt.args.a, &tt.args.b), "lessThan(%v, %v)", tt.args.a, tt.args.b)
 		})
 	}
 }

@@ -39,8 +39,8 @@ type GoSqlUpdateSpec struct {
 }
 
 type GoSqlAsIdentifier struct {
-	Id data.GoSqlIdentifier
-	As string
+	Id    data.GoSqlIdentifier
+	Alias string
 }
 
 type GoSqlJoinSpec struct {
