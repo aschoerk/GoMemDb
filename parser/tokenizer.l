@@ -59,7 +59,7 @@ func newLexer(src *bufio.Reader) (y *yylexer) {
 }
 
 func (y yylexer) Error(e string) {
-    log.Fatal(e)
+    log.Panic(e)
 }
 
 /* types need to also set lval */

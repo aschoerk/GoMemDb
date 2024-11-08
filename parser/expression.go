@@ -16,9 +16,9 @@ import (
 // the data necessary to convert a TermTree into a machine to calculate the result of the term
 type EvaluationContext struct {
 	m                    *Machine
-	lastPlaceHolderIndex int   // describes when encountering placeholders from which offset the index to adapt
-	t                    Table // describes the record types
-	resultType           int   // here the evaluation describes the type of the result (INTEGER, FLOAT, VARCHAR, TIMESTAMP)
+	lastPlaceHolderIndex int            // describes when encountering placeholders from which offset the index to adapt
+	t                    *JoinedRecords // describes the record types
+	resultType           int            // here the evaluation describes the type of the result (INTEGER, FLOAT, VARCHAR, TIMESTAMP)
 	// name                 *string
 }
 
@@ -84,8 +84,8 @@ func OrderBy2Commands(orderByList *[]GoSqlOrderBy, table Table) (*EvaluationCont
 		} else {
 			ix = orderByEntry.Name.(int) - 1
 		}
-		AddPushAttribute(e.m, ix)
-		AddPushAttribute2(e.m, ix)
+		AddPushAttribute(e.m, 0, ix)
+		AddPushAttribute2(e.m, 0, ix)
 		columns := table.Columns()
 		switch columns[ix].ColType {
 		case BOOLEAN:
@@ -122,10 +122,10 @@ func initPlaceHolders(terms []*GoSqlTerm, args []driver.Value, placeHolderOffset
 	}
 }
 
-func Terms2Commands(terms []*GoSqlTerm, args []driver.Value, inputTable Table, placeHolderOffset *int) ([]*EvaluationContext, error) {
+func Terms2Commands(terms []*GoSqlTerm, args []driver.Value, inputTable *JoinedRecords, placeHolderOffset *int) ([]*EvaluationContext, error) {
 	initPlaceHolders(terms, args, placeHolderOffset)
 	currentPlaceholderIndex := -1 // TODO: check if -1 is right here
-	res := []*EvaluationContext{}
+	var res []*EvaluationContext
 	for _, term := range terms {
 		e := NewEvaluationContext(args, currentPlaceholderIndex)
 		e.t = inputTable
@@ -268,18 +268,17 @@ func (term *GoSqlTerm) handleLeaf(e *EvaluationContext) (int, error) {
 		return CategorizePointer(p)
 	}
 	if term.leaf.token == IDENTIFIER {
-		id := term.leaf.ptr.(GoSqlIdentifier).Parts[0]
-		if id == data.VersionedRecordId {
-			AddPushAttribute(e.m, -1)
+		id := term.leaf.ptr.(GoSqlIdentifier)
+		if id.Parts[0] == data.VersionedRecordId {
+			AddPushAttribute(e.m, 0, -1)
 			return INTEGER, nil
 		} else {
-			for ix, col := range e.t.Columns() {
-				if col.Name == id {
-					AddPushAttribute(e.m, ix)
-					return col.ParserType, nil
-				}
+			tableIx, ix, coltype, err := e.t.identifyId(id)
+			if err != nil {
+				return -1, err
 			}
-			return -1, fmt.Errorf("identifier %s not found", id)
+			AddPushAttribute(e.m, tableIx, ix)
+			return coltype, nil
 		}
 	}
 	AddPushConstant(e.m, term.leaf.ptr)

@@ -11,6 +11,7 @@ run:
     go build parser/*.go
     go build machine/*.go
     go build driver/*.go
+    go build tests/*.go
     go build example.go
     ./example
 

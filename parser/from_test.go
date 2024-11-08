@@ -8,23 +8,23 @@ import (
 )
 
 func dv(v ...data.Tuple) *TableViewData {
-	res := make([]*data.Tuple, len(v))
+	res := make([]data.Tuple, len(v))
 	for i := range v {
-		res[i] = &v[i]
+		res[i] = v[i]
 	}
-	return &TableViewData{cols: []int{0, 1, 2, 3, 4}[:len(v[0].Data)], tuples: res}
+	return &TableViewData{cols: []int{0, 1, 2, 3, 4}[:v[0].DataLen()], tuples: res}
 }
 
 func v(a ...driver.Value) data.Tuple {
-	res := data.Tuple{int64(a[0].(int)), make([]driver.Value, len(a)-1)}
+	res := data.NewTuple(int64(a[0].(int)), make([]driver.Value, len(a)-1))
 	for i := 1; i < len(a); i++ {
 		switch a[i].(type) {
 		case int:
-			res.Data[i-1] = int64(a[i].(int))
+			res.SetData(i-1, 0, int64(a[i].(int)))
 		case float32:
-			res.Data[i-1] = float64(a[i].(float32))
+			res.SetData(i-1, 0, float64(a[i].(float32)))
 		default:
-			res.Data[i-1] = a[i]
+			res.SetData(i-1, 0, a[i])
 		}
 	}
 	return res
@@ -35,7 +35,7 @@ func Test_createIdView(t *testing.T) {
 		left  *TableViewData
 		right *TableViewData
 	}
-	empty := &TableViewData{cols: []int{}, tuples: []*data.Tuple{}}
+	empty := &TableViewData{cols: []int{}, tuples: []data.Tuple{}}
 	tests := []struct {
 		name string
 		args args
@@ -107,18 +107,19 @@ func Test_createIdView(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t2int64 := func(t [][]*data.Tuple) [][]int64 {
-				res := [][]int64{}
+			t2int64 := func(t [][]data.Tuple) [][]int64 {
+				var res [][]int64
 				for _, ts := range t {
 					row := make([]int64, len(ts))
 					for ti, t := range ts {
-						row[ti] = t.Id
+						row[ti] = t.Id()
 					}
 					res = append(res, row)
 				}
 				return res
 			}
-			assert.Equalf(t, tt.want, t2int64(createIdView(tt.args.left, tt.args.right)), "createIdView(%v, %v)", tt.args.left, tt.args.right)
+			res := createIdView(tt.args.left, tt.args.right)
+			assert.Equalf(t, tt.want, t2int64(res), "createIdView(%v, %v)", tt.args.left, tt.args.right)
 		})
 	}
 }
@@ -160,7 +161,7 @@ func Test_lessThan(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equalf(t, tt.want, lessThan(dv(tt.args.a), dv(tt.args.b), &tt.args.a, &tt.args.b), "lessThan(%v, %v)", tt.args.a, tt.args.b)
+			assert.Equalf(t, tt.want, lessThan(dv(tt.args.a), dv(tt.args.b), tt.args.a, tt.args.b), "lessThan(%v, %v)", tt.args.a, tt.args.b)
 		})
 	}
 }

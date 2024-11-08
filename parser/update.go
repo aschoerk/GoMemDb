@@ -24,7 +24,7 @@ func NewUpdateRequest(tableName GoSqlAsIdentifier, updates []GoSqlUpdateSpec, wh
 	return &GoSqlUpdateRequest{
 		data.BaseStatement{
 			data.StatementBaseData{}},
-		[]*GoSqlFromSpec{&GoSqlFromSpec{tableName, nil}}, updates, where,
+		[]*GoSqlFromSpec{{tableName, nil}}, updates, where,
 		nil, nil, nil, nil,
 	}
 }
@@ -128,7 +128,7 @@ func (r *GoSqlUpdateRequest) Exec(args []Value) (Result, error) {
 		return nil, fmt.Errorf("expected %d placeholders, but got %d args", len(r.placeHolders), len(args))
 	}
 	placeHolderOffset := 0
-	commands, err := Terms2Commands(r.terms, args, r.table, &placeHolderOffset)
+	commands, err := Terms2Commands(r.terms, args, JoinedRecordsFromTable(r.table), &placeHolderOffset)
 	if err != nil {
 		return nil, err
 	}
@@ -144,7 +144,7 @@ func (r *GoSqlUpdateRequest) Exec(args []Value) (Result, error) {
 			command.m.AddCommand(conversion)
 		}
 	}
-	whereCommands, err := Terms2Commands([]*GoSqlTerm{r.where}, args, r.table, &placeHolderOffset)
+	whereCommands, err := Terms2Commands([]*GoSqlTerm{r.where}, args, JoinedRecordsFromTable(r.table), &placeHolderOffset)
 	if err != nil {
 		return nil, err
 	}
@@ -154,8 +154,8 @@ func (r *GoSqlUpdateRequest) Exec(args []Value) (Result, error) {
 	affectedRows := 0
 	it := r.table.NewIterator(r.BaseData(), true)
 	for {
-		tuple, ok, err := it.Next(func(tupleData []Value) (bool, error) {
-			res, err := whereCommands[0].m.Execute(args, data.Tuple{-1, tupleData}, data.NULL_TUPLE)
+		tuple, ok, err := it.Next(func(tupleData data.Tuple) (bool, error) {
+			res, err := whereCommands[0].m.Execute(args, tupleData, data.NULL_TUPLE)
 			if err != nil {
 				return false, err
 			}
@@ -179,11 +179,11 @@ func (r *GoSqlUpdateRequest) Exec(args []Value) (Result, error) {
 			}
 			results[ix] = result
 		}
-		resultTuple := slices.Clone(tuple.Data)
+		resultTuple := tuple.Clone()
 		for ix, result := range results {
-			resultTuple[r.columnixs[ix]] = result
+			resultTuple.SetData(0, r.columnixs[ix], result)
 		}
-		r.table.Update(tuple.Id, resultTuple, r.Conn)
+		r.table.Update(tuple.Id(), resultTuple, r.Conn)
 	}
 	data.EndStatement(&r.StatementBaseData)
 	return GoSqlResult{-1, int64(affectedRows)}, nil
@@ -203,21 +203,21 @@ func (r *GoSqlDeleteRequest) Exec(args []Value) (Result, error) {
 	if !exists {
 		return nil, fmt.Errorf("Unknown Table %v", r.from)
 	}
-	placeHolders := []*GoSqlTerm{}
+	var placeHolders []*GoSqlTerm
 	if r.where != nil {
 		placeHolders = r.where.FindPlaceHolders(placeHolders)
 	}
 	placeHolderOffset := 0
-	whereCommands, err := Terms2Commands([]*GoSqlTerm{r.where}, args, table, &placeHolderOffset)
+	whereCommands, err := Terms2Commands([]*GoSqlTerm{r.where}, args, JoinedRecordsFromTable(table), &placeHolderOffset)
 	if err != nil {
 		return nil, err
 	}
 	affectedRows := 0
-	todelete := []int64{}
+	var todelete []int64
 	it := table.NewIterator(r.BaseData(), true)
 	for {
-		tuple, ok, err := it.Next(func(tupleData []Value) (bool, error) {
-			res, err := whereCommands[0].m.Execute(args, data.Tuple{-1, tupleData}, data.NULL_TUPLE)
+		tuple, ok, err := it.Next(func(tupleData data.Tuple) (bool, error) {
+			res, err := whereCommands[0].m.Execute(args, tupleData, data.NULL_TUPLE)
 			if err != nil {
 				return false, err
 			}
@@ -233,7 +233,7 @@ func (r *GoSqlDeleteRequest) Exec(args []Value) (Result, error) {
 		if !ok {
 			break
 		}
-		todelete = append(todelete, tuple.Id)
+		todelete = append(todelete, tuple.Id())
 	}
 	slices.Reverse(todelete)
 	for _, id := range todelete {

@@ -186,8 +186,8 @@ func GetSnapShot(transaction *Transaction) *SnapShot {
 	defer transactionManager.mu.RUnlock()
 	xmin := transactionManager.lowestRunningXid.Load()
 	xmax := transactionManager.nextXid.Load()
-	runningXids := []int64{}
-	rolledBackXids := []int64{}
+	var runningXids []int64
+	var rolledBackXids []int64
 	cid := int32(0)
 	if transaction != nil {
 		cid = transaction.Cid

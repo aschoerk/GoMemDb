@@ -20,12 +20,12 @@ const (
 )
 
 var (
-	VersionedRecordId string = "VersionedRecordIdentifier"
+	VersionedRecordId = "VersionedRecordIdentifier"
 )
 
 var tablesMu sync.Mutex
 
-var NULL_TUPLE = Tuple{-1, nil}
+var NULL_TUPLE = &ArrayTuple{-1, nil}
 
 type GoSqlColumn struct {
 	Name       string
@@ -38,7 +38,7 @@ type GoSqlColumn struct {
 
 type TableIterator interface {
 	GetTable() Table
-	Next(func([]driver.Value) (bool, error)) (Tuple, bool, error)
+	Next(func(tuple Tuple) (bool, error)) (Tuple, bool, error)
 }
 
 type Table interface {
@@ -49,13 +49,63 @@ type Table interface {
 	NewIterator(baseData *StatementBaseData, forChange bool) TableIterator
 	FindColumn(name string) (int, error)
 	Insert(recordValues []driver.Value, conn *GoSqlConnData) int64
-	Update(recordId int64, recordValues []driver.Value, conn *GoSqlConnData) bool
+	Update(recordId int64, recordValues Tuple, conn *GoSqlConnData) bool
 	Delete(recordId int64, conn *GoSqlConnData) bool
 }
 
-type Tuple struct {
-	Id   int64
-	Data []driver.Value
+type Tuple interface {
+	Id() int64
+	Data(tableIx int, ix int) (driver.Value, error)
+	SafeData(tableIx int, ix int) driver.Value
+	DataLen() int
+	SetData(tableIx int, ix int, v driver.Value) error
+	Clone() Tuple
+}
+
+type ArrayTuple struct {
+	recid int64
+	data  []driver.Value
+}
+
+func (t *ArrayTuple) DataLen() int {
+	return len(t.data)
+}
+
+func (t *ArrayTuple) Id() int64 {
+	return t.recid
+}
+
+func (t *ArrayTuple) Data(tableIx int, ix int) (driver.Value, error) {
+	if tableIx != 0 {
+		return nil, fmt.Errorf("ArrayTuple does not support table: %d", tableIx)
+	}
+	if ix > len(t.data) {
+		return nil, fmt.Errorf("invalid tuple ix: %d", ix)
+	}
+	return t.data[ix], nil
+}
+
+func (t *ArrayTuple) SafeData(tableIx int, ix int) driver.Value {
+	return t.data[ix]
+}
+
+func (t *ArrayTuple) Clone() Tuple {
+	return &ArrayTuple{t.Id(), t.data}
+}
+
+func (t *ArrayTuple) SetData(tableIx int, ix int, val driver.Value) error {
+	if tableIx != 0 {
+		return fmt.Errorf("ArrayTuple does not support table: %d", tableIx)
+	}
+	if ix > len(t.data) {
+		return fmt.Errorf("invalid tuple ix: %d", ix)
+	}
+	t.data[ix] = val
+	return nil
+}
+
+func NewTuple(i int64, data []driver.Value) Tuple {
+	return &ArrayTuple{i, data}
 }
 
 const (
@@ -89,18 +139,18 @@ type TempTableIterator struct {
 	ix    int
 }
 
-func (it *TempTableIterator) Next(check func([]driver.Value) (bool, error)) (Tuple, bool, error) {
+func (it *TempTableIterator) Next(check func(Tuple) (bool, error)) (Tuple, bool, error) {
 	for {
 		// ignore snapshot, just check if xids match
 		if len(it.table.Tempdata) > it.ix {
-			candidate := it.table.Tempdata[it.ix]
+			candidate := NewTuple(-1, it.table.Tempdata[it.ix])
 			it.ix++
 			found, err := check(candidate)
 			if err != nil {
 				return NULL_TUPLE, false, err
 			}
 			if found {
-				return Tuple{-1, candidate}, true, nil
+				return candidate, true, nil
 			}
 		} else {
 			return NULL_TUPLE, false, nil
@@ -223,9 +273,9 @@ func (tIt *GoSqlTableIterator) GetTable() Table {
 	return tIt.table
 }
 
-var ErrTraSerialization error = errors.New("SerializationError")
+var ErrTraSerialization = errors.New("SerializationError")
 
-var ErrDoWaitForTra error = errors.New("WaitforTra")
+var ErrDoWaitForTra = errors.New("WaitforTra")
 
 func (ti *GoSqlTableIterator) isVisible(xid int64) bool {
 	return xid < ti.SnapShot.xmax && !ti.isRunning(xid) && !ti.isRolledback(xid)
@@ -393,9 +443,9 @@ func (ti *GoSqlTableIterator) isVisibleTupleNoTraEffectCurrentNotVisibleCases(tu
 }
 
 func (ti *GoSqlTableIterator) isVisibleTupleNoTraEffect(tuple *VersionedTuple, forUpdate bool, offset int) (bool, bool, *TupleVersion, int64, error) {
-	done, visible, tupleVersion, contendingTra, error := ti.isVisibleTupleNoTraEffectVariousSingleVersionCases(tuple, forUpdate, offset)
+	done, visible, tupleVersion, contendingTra, err := ti.isVisibleTupleNoTraEffectVariousSingleVersionCases(tuple, forUpdate, offset)
 	if done {
-		return done, visible, tupleVersion, contendingTra, error
+		return done, visible, tupleVersion, contendingTra, err
 	} else {
 		return ti.isVisibleTupleNoTraEffectCurrentNotVisibleCases(tuple, forUpdate, offset)
 	}
@@ -533,28 +583,28 @@ func (ti *GoSqlTableIterator) isVisibleTupleWithTraEffectStartingWithXmaxTraXmin
 }
 
 func (ti *GoSqlTableIterator) isVisibleTupleWithTraEffect(tuple *VersionedTuple) (bool, bool, *TupleVersion, int64, error) {
-	done, visible, error, tupleVersion, contendingTra := ti.isVisibleTupleWithTraEffectStartingWithXmax0(tuple)
+	done, visible, err, tupleVersion, contendingTra := ti.isVisibleTupleWithTraEffectStartingWithXmax0(tuple)
 	if !done {
-		done, visible, error, tupleVersion, contendingTra = ti.isVisibleTupleWithTraEffectStartingWithXmaxTraXminTra(tuple)
+		done, visible, err, tupleVersion, contendingTra = ti.isVisibleTupleWithTraEffectStartingWithXmaxTraXminTra(tuple)
 		if !done {
-			done, visible, error, tupleVersion, contendingTra = ti.isVisibleTupleWithTraEffectStartingWithXmaxTraXminNotTra(tuple)
+			done, visible, err, tupleVersion, contendingTra = ti.isVisibleTupleWithTraEffectStartingWithXmaxTraXminNotTra(tuple)
 		}
 	}
-	return done, visible, error, tupleVersion, contendingTra
+	return done, visible, err, tupleVersion, contendingTra
 }
 
 func (ti *GoSqlTableIterator) isVisibleTuple(tuple *VersionedTuple, forUpdate bool) (bool, *TupleVersion, int64, error) {
-	done, visible, tupleVersion, contendingTra, error := ti.isVisibleTupleNoTraEffect(tuple, forUpdate, 0)
+	done, visible, tupleVersion, contendingTra, err := ti.isVisibleTupleNoTraEffect(tuple, forUpdate, 0)
 	if !done {
-		done, visible, tupleVersion, contendingTra, error = ti.isVisibleTupleWithTraEffect(tuple)
+		done, visible, tupleVersion, contendingTra, err = ti.isVisibleTupleWithTraEffect(tuple)
 	}
 	if !done {
 		return false, nil, -1, errors.New("case of tuple handling left")
 	}
-	return visible, tupleVersion, contendingTra, error
+	return visible, tupleVersion, contendingTra, err
 }
 
-func (ti *GoSqlTableIterator) handleCandidate(check func([]driver.Value) (bool, error), forUpdate bool, tuple *VersionedTuple) (Tuple, bool, error) {
+func (ti *GoSqlTableIterator) handleCandidate(check func(Tuple) (bool, error), forUpdate bool, tuple *VersionedTuple) (Tuple, bool, error) {
 	tuple.mu.Lock()
 	defer tuple.mu.Unlock()
 
@@ -571,7 +621,7 @@ func (ti *GoSqlTableIterator) handleCandidate(check func([]driver.Value) (bool, 
 		if !visible {
 			return NULL_TUPLE, false, nil
 		}
-		selected, err := check(version.Data)
+		selected, err := check(NewTuple(tuple.id, version.Data))
 		if err != nil {
 			return NULL_TUPLE, false, err
 		}
@@ -605,10 +655,10 @@ func (ti *GoSqlTableIterator) handleCandidate(check func([]driver.Value) (bool, 
 					version := &tuple.Versions[len(tuple.Versions)-1]
 					version.xmax = ti.Transaction.Xid
 					version.flags |= FOR_UPDATE_FLAG
-					return Tuple{tuple.id, version.Data}, true, nil
+					return NewTuple(tuple.id, version.Data), true, nil
 				}
 			} else {
-				return Tuple{tuple.id, version.Data}, true, nil
+				return NewTuple(tuple.id, version.Data), true, nil
 			}
 		} else {
 			return NULL_TUPLE, false, nil
@@ -616,7 +666,7 @@ func (ti *GoSqlTableIterator) handleCandidate(check func([]driver.Value) (bool, 
 	}
 }
 
-func (ti *GoSqlTableIterator) Next(check func([]driver.Value) (bool, error)) (Tuple, bool, error) {
+func (ti *GoSqlTableIterator) Next(check func(Tuple) (bool, error)) (Tuple, bool, error) {
 	forUpdate := ti.forUpdate
 	// select versions against snapShot
 	for {
@@ -697,7 +747,7 @@ func (t *GoSqlTable) Delete(recordId int64, conn *GoSqlConnData) bool {
 	return ok
 }
 
-func (t *GoSqlTable) Update(recordId int64, recordValues []driver.Value, conn *GoSqlConnData) bool {
+func (t *GoSqlTable) Update(recordId int64, recordValues Tuple, conn *GoSqlConnData) bool {
 	StartTransaction(conn)
 	t.mu.RLock()
 	defer t.mu.RUnlock()
@@ -712,7 +762,7 @@ func (t *GoSqlTable) Update(recordId int64, recordValues []driver.Value, conn *G
 		}
 		version.xmax = conn.Transaction.Xid
 		version.cid = conn.Transaction.Cid
-		recordVersion := TupleVersion{recordValues, conn.Transaction.Xid, 0, 0, conn.Transaction.Cid}
+		recordVersion := TupleVersion{recordValues.(*ArrayTuple).data, conn.Transaction.Xid, 0, 0, conn.Transaction.Cid}
 		tuplep.Versions = append(tuplep.Versions, recordVersion)
 	}
 	return ok
@@ -723,7 +773,7 @@ func (t *TempTable) Insert(recordValues []driver.Value, conn *GoSqlConnData) int
 	return -1
 }
 
-func (t *TempTable) Update(recordId int64, recordValues []driver.Value, conn *GoSqlConnData) bool {
+func (t *TempTable) Update(recordId int64, recordValues Tuple, conn *GoSqlConnData) bool {
 	panic("not implemented")
 }
 
@@ -732,6 +782,6 @@ func (t *TempTable) Delete(recordId int64, conn *GoSqlConnData) bool {
 }
 
 var (
-	Schemas map[string]map[string]Table = make(map[string]map[string]Table)
+	Schemas = make(map[string]map[string]Table)
 	// Tables map[string]Table = make(map[string]Table)
 )

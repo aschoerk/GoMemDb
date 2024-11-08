@@ -49,7 +49,7 @@ func (r *GoSqlInsertRequest) Exec(args []Value) (Result, error) {
 			return nil, errors.New("Statement already closed")
 		}
 		placeHolderOffset := 0
-		insertContexts := [][]*EvaluationContext{}
+		var insertContexts [][]*EvaluationContext
 		var lastInsertedId int64 = -1
 		var rowsAffected int64 = 0
 		if r.State == Parsed {
@@ -81,7 +81,7 @@ func (r *GoSqlInsertRequest) Exec(args []Value) (Result, error) {
 			for _, insertContext := range insertContexts {
 				tuple := make([]Value, len(table.Columns()))
 
-				for colix, _ := range tuple {
+				for colix := range tuple {
 					executionContext := insertContext[colix]
 					if executionContext != nil {
 						res, err := executionContext.m.Execute(args, NULL_TUPLE, NULL_TUPLE)

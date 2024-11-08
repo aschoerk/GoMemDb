@@ -115,7 +115,7 @@ func IntToTimestamp(m *Machine) error {
 	if !ok {
 		return newError("top element is not an int")
 	}
-	s.Push(time.Unix(int64(i), 0))
+	s.Push(time.Unix(i, 0))
 	return nil
 }
 
@@ -301,7 +301,7 @@ func TimestampToInteger(m *Machine) error {
 		return newError("top element is not a time.Time")
 	}
 
-	s.Push(int64(timeVal.Unix()))
+	s.Push(timeVal.Unix())
 	return nil
 }
 

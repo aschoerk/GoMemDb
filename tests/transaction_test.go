@@ -28,10 +28,10 @@ func NewStatementBaseData(t *testing.T) *data.StatementBaseData {
 func InitTraAndTestTable() *data.GoSqlTable {
 	nextUpdateValue = 100
 	data.InitTransactionManager()
-	return data.NewTable(data.GoSqlIdentifier{[]string{"testtable"}}, []data.GoSqlColumn{data.GoSqlColumn{"x", parser.INTEGER, parser.INTEGER, 0, 0, false}})
+	return data.NewTable(data.GoSqlIdentifier{[]string{"testtable"}}, []data.GoSqlColumn{{"x", parser.INTEGER, parser.INTEGER, 0, 0, false}})
 }
 
-func check(tuple []Value) (bool, error) {
+func check(tuple data.Tuple) (bool, error) {
 	return true, nil
 }
 
@@ -130,7 +130,7 @@ func (t *T) makeUIt() data.TableIterator {
 
 func (t *T) doU(id int64) bool {
 	nextUpdateValue++
-	return t.table.Update(id, []Value{nextUpdateValue}, t.baseData.Conn)
+	return t.table.Update(id, data.NewTuple(-1, []Value{nextUpdateValue}), t.baseData.Conn)
 }
 
 func (t *T) doD(id int64) bool {
@@ -166,7 +166,7 @@ func TestN1(t *testing.T) {
 	it1 := t1.makeIt()
 	res, _, err := it1.Next(check)
 	assert.Nil(t, err)
-	assert.Equal(t, r1, res.Id)
+	assert.Equal(t, r1, res.Id())
 	_, ok, err := it1.Next(check)
 	assert.False(t, ok)
 	assert.Nil(t, err)
@@ -213,7 +213,7 @@ func TestN23(t *testing.T) {
 	it1 := t1.makeIt()
 	res, ok, _ := it1.Next(check)
 	assert.True(t, ok)
-	assert.Equal(t, r1, res.Id)
+	assert.Equal(t, r1, res.Id())
 }
 
 func TestN3(t *testing.T) {
@@ -227,7 +227,7 @@ func TestN3(t *testing.T) {
 	t2.doEos()
 	res, _, err := it1.Next(check)
 	assert.Nil(t, err)
-	assert.Equal(t, r1, res.Id)
+	assert.Equal(t, r1, res.Id())
 }
 
 func TestN4(t *testing.T) {
@@ -238,11 +238,11 @@ func TestN4(t *testing.T) {
 	t2 := NewT(t, table)
 	it2 := t2.makeUIt()
 	res2, _, _ := it2.Next((check)) // to make xmax flagged
-	assert.Equal(t, r1, res2.Id)
+	assert.Equal(t, r1, res2.Id())
 	it1 := t1.makeIt()
 	res, _, err := it1.Next(check)
 	assert.Nil(t, err)
-	assert.Equal(t, r1, res.Id)
+	assert.Equal(t, r1, res.Id())
 }
 
 func TestN5(t *testing.T) {
@@ -254,10 +254,10 @@ func TestN5(t *testing.T) {
 	t2 := NewT(t, table)
 	it2 := t2.makeUIt()
 	res2, _, _ := it2.Next((check)) // to make xmax flagged, but unvisible anyway for t1
-	assert.Equal(t, r1, res2.Id)
+	assert.Equal(t, r1, res2.Id())
 	res, _, err := it1.Next(check)
 	assert.Nil(t, err)
-	assert.Equal(t, r1, res.Id)
+	assert.Equal(t, r1, res.Id())
 }
 
 func TestN6(t *testing.T) {
@@ -273,7 +273,7 @@ func TestN6(t *testing.T) {
 	t2.doRollback()
 	res, _, err := it1.Next(check)
 	assert.Nil(t, err)
-	assert.Equal(t, r1, res.Id)
+	assert.Equal(t, r1, res.Id())
 }
 
 func TestNX(t *testing.T) {
@@ -284,7 +284,7 @@ func TestNX(t *testing.T) {
 	t2 := NewT(t, table)
 	it2 := t2.makeUIt()
 	res2, _, _ := it2.Next((check))
-	assert.Equal(t, r1, res2.Id)
+	assert.Equal(t, r1, res2.Id())
 	it1 := t1.makeUIt()
 	_, _, err := it1.Next(check)
 	assert.Equal(t, data.ErrTraLockTimeout, err)
@@ -311,8 +311,8 @@ func TestN82(t *testing.T) {
 	t1.doRollback()
 	it1 := t1.makeIt()
 	res, _, _ := it1.Next(check)
-	assert.Equal(t, r1, res.Id)
-	assert.Equal(t, 1, res.Data[0])
+	assert.Equal(t, r1, res.Id())
+	assert.Equal(t, 1, res.SafeData(0, 0))
 }
 
 func TestN83(t *testing.T) {
@@ -327,8 +327,8 @@ func TestN83(t *testing.T) {
 	t1.doRollback()
 	it1 := t1.makeIt()
 	res, _, _ := it1.Next(check)
-	assert.Equal(t, r1, res.Id)
-	assert.Equal(t, 101, res.Data[0])
+	assert.Equal(t, r1, res.Id())
+	assert.Equal(t, 101, res.SafeData(0, 0))
 }
 
 func TestN832(t *testing.T) {
@@ -343,8 +343,8 @@ func TestN832(t *testing.T) {
 	t1.doCommit()
 	it1 := t1.makeIt()
 	res, _, _ := it1.Next(check)
-	assert.Equal(t, r1, res.Id)
-	assert.Equal(t, 102, res.Data[0])
+	assert.Equal(t, r1, res.Id())
+	assert.Equal(t, 102, res.SafeData(0, 0))
 }
 
 func TestN84(t *testing.T) {
@@ -359,8 +359,8 @@ func TestN84(t *testing.T) {
 	t1.doRollback()
 	it1 := t1.makeIt()
 	res, _, _ := it1.Next(check)
-	assert.Equal(t, r1, res.Id)
-	assert.Equal(t, 101, res.Data[0])
+	assert.Equal(t, r1, res.Id())
+	assert.Equal(t, 101, res.SafeData(0, 0))
 }
 
 func TestN91(t *testing.T) {
@@ -374,8 +374,8 @@ func TestN91(t *testing.T) {
 	assert.True(t, t2.doU(r1))
 	t2.doEos()
 	res, _, _ := itx.Next(check)
-	assert.Equal(t, r1, res.Id)
-	assert.Equal(t, 1, res.Data[0])
+	assert.Equal(t, r1, res.Id())
+	assert.Equal(t, 1, res.SafeData(0, 0))
 }
 
 func TestN92(t *testing.T) {
@@ -391,8 +391,8 @@ func TestN92(t *testing.T) {
 	assert.True(t, t2.doU(r1))
 	t2.doEos()
 	res, _, _ := itx.Next(check)
-	assert.Equal(t, r1, res.Id)
-	assert.Equal(t, 102, res.Data[0])
+	assert.Equal(t, r1, res.Id())
+	assert.Equal(t, 102, res.SafeData(0, 0))
 }
 
 func TestT1(t *testing.T) {
@@ -403,8 +403,8 @@ func TestT1(t *testing.T) {
 	t1.doEos()
 	it := t1.makeIt()
 	res, _, _ := it.Next(check)
-	assert.Equal(t, r1, res.Id)
-	assert.Equal(t, 1, res.Data[0])
+	assert.Equal(t, r1, res.Id())
+	assert.Equal(t, 1, res.SafeData(0, 0))
 }
 
 func TestT21(t *testing.T) {
@@ -442,8 +442,8 @@ func TestT22_3(t *testing.T) {
 	t1.doU(r1)
 	t1.doEos()
 	res, _, _ := it.Next(check) // here insert can be seen because being from another tra, so cid is not relevant anymore.
-	assert.Equal(t, r1, res.Id)
-	assert.Equal(t, 1, res.Data[0])
+	assert.Equal(t, r1, res.Id())
+	assert.Equal(t, 1, res.SafeData(0, 0))
 }
 
 func TestT22_2(t *testing.T) {
@@ -458,8 +458,8 @@ func TestT22_2(t *testing.T) {
 	t1.doU(r1) // cid of update overwrites cid of insert
 	t1.doEos()
 	res, _, _ := it.Next(check)
-	assert.Equal(t, r1, res.Id)
-	assert.Equal(t, 101, res.Data[0])
+	assert.Equal(t, r1, res.Id())
+	assert.Equal(t, 101, res.SafeData(0, 0))
 }
 
 func TestT31(t *testing.T) {
@@ -491,8 +491,8 @@ func TestT322(t *testing.T) {
 	t1.doD(r1)
 	t1.doEos()
 	res, _, _ := it.Next(check)
-	assert.Equal(t, r1, res.Id)
-	assert.Equal(t, 101, res.Data[0]) // fetched second version despite fitting cid is found in first version
+	assert.Equal(t, r1, res.Id())
+	assert.Equal(t, 101, res.SafeData(0, 0)) // fetched second version despite fitting cid is found in first version
 }
 
 func TestT321(t *testing.T) {
@@ -539,8 +539,8 @@ func TestT6(t *testing.T) {
 	it := t1.makeIt()
 	res, ok, _ := it.Next(check)
 	assert.True(t, ok) // was only marked for update, so it must be visible
-	assert.Equal(t, r1, res.Id)
-	assert.Equal(t, 1, res.Data[0])
+	assert.Equal(t, r1, res.Id())
+	assert.Equal(t, 1, res.SafeData(0, 0))
 }
 
 func TestT8(t *testing.T) {
@@ -554,8 +554,8 @@ func TestT8(t *testing.T) {
 	assert.True(t, t1.doU(r1))
 	res, ok, _ := it.Next(check)
 	assert.True(t, ok) // was done by separate visible transaction
-	assert.Equal(t, r1, res.Id)
-	assert.Equal(t, 1, res.Data[0])
+	assert.Equal(t, r1, res.Id())
+	assert.Equal(t, 1, res.SafeData(0, 0))
 }
 
 func TestT8_2(t *testing.T) {
@@ -569,8 +569,8 @@ func TestT8_2(t *testing.T) {
 	assert.True(t, t2.doU(r1))
 	res, ok, _ := it.Next(check)
 	assert.True(t, ok) // was done by separate visible transaction (because of COMMITTED_READ)
-	assert.Equal(t, r1, res.Id)
-	assert.Equal(t, 1, res.Data[0])
+	assert.Equal(t, r1, res.Id())
+	assert.Equal(t, 1, res.SafeData(0, 0))
 }
 
 func TestT91(t *testing.T) {
@@ -601,8 +601,8 @@ func TestT92(t *testing.T) {
 	t2.doEos()
 	res, ok, _ := it.Next(check)
 	assert.True(t, ok) // cursor/iterator began immediately after insert by t2
-	assert.Equal(t, r1, res.Id)
-	assert.Equal(t, 1, res.Data[0])
+	assert.Equal(t, r1, res.Id())
+	assert.Equal(t, 1, res.SafeData(0, 0))
 }
 
 func TestT93(t *testing.T) {
@@ -645,7 +645,7 @@ func TestT11(t *testing.T) {
 	it := t1.makeIt()
 	res, ok, _ := it.Next(check)
 	assert.True(t, ok) // was marked for update by itU
-	assert.Equal(t, r1, res.Id)
+	assert.Equal(t, r1, res.Id())
 }
 
 func TestCanSetRollbackOnlyAndCommitToError(t *testing.T) {

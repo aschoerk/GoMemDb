@@ -106,6 +106,14 @@ type GoSqlIdentifier struct {
 	Parts []string
 }
 
+func (i GoSqlIdentifier) Name() string {
+	res := i.Parts[0]
+	for _, part := range i.Parts[1:] {
+		res += "." + part
+	}
+	return res
+}
+
 func GetTable(stmt BaseStatement, id GoSqlIdentifier) (Table, bool) {
 	if len(id.Parts) == 1 {
 		res := Schemas[stmt.Conn.CurrentSchema][id.Parts[0]]

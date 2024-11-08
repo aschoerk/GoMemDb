@@ -48,29 +48,25 @@ func AddPushPlaceHolder(m *Machine, ix int) {
 	})
 }
 
-func AddPushAttribute(m *Machine, ix int) {
+func AddPushAttribute(m *Machine, tableIx int, ix int) {
 	m.AddCommand(func(m *Machine) error {
-		if ix < -1 || ix >= len(m.r.Data) {
-			return fmt.Errorf("invalid tuple ix: %d", ix)
-		}
 		if ix == -1 {
-			m.s.Push(m.r.Id)
+			m.s.Push(m.r.Id())
 		} else {
-			m.s.Push((m.r.Data)[ix])
+			val := m.r.SafeData(tableIx, ix)
+			m.s.Push(val)
 		}
 		return nil
 	})
 }
 
-func AddPushAttribute2(m *Machine, ix int) {
+func AddPushAttribute2(m *Machine, tableIx int, ix int) {
 	m.AddCommand(func(m *Machine) error {
-		if ix < -1 || ix >= len(m.r2.Data) {
-			return fmt.Errorf("invalid record2 ix: %d", ix)
-		}
 		if ix == -1 {
-			m.s.Push(m.r2.Id)
+			m.s.Push(m.r2.Id())
 		} else {
-			m.s.Push((m.r2.Data)[ix])
+			val := m.r2.SafeData(tableIx, ix)
+			m.s.Push(val)
 		}
 		return nil
 	})

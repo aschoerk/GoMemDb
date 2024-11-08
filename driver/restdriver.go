@@ -146,7 +146,7 @@ func (r *GoSqlRestRows) Next(data []driver.Value) error {
 	if r.currentRow < len(r.rowsResult.Values)-1 {
 		r.currentRow++
 		row := convertArgs(r.rowsResult.Values[r.currentRow], &r.rowsResult.Types)
-		for ix, _ := range data {
+		for ix := range data {
 			data[ix] = row[ix]
 		}
 		return nil

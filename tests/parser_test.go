@@ -19,12 +19,12 @@ func TestParser(t *testing.T) {
 
 	// parser.YYDebug = 3
 	testCases := []string{
-		"select count(DISTINCT A.name) from \"A\".\"A\" AS X inner JOIN B on A.A.x = B.Y LEFT JOIN C on C.y = A.d where A.A.x > 100",
-		"select count(DISTINCT A.name) from A.A AS X inner JOIN B on A.A.x = B.Y LEFT JOIN C on C.y = A.d where A.A.x > 100",
-		"select count(DISTINCT A.name) from A.A AS X inner JOIN B on A.A.x = B.Y LEFT JOIN C on C.y = A.d",
-		"select count(DISTINCT A.name) from A.A AS X join B on A.A.x = B.Y",
-		"select count(DISTINCT A.name) from A.A AS X join B",
-		"select count(DISTINCT A.name) from A.A AS X",
+		"select count(DISTINCT A.name) from \"A\".\"A\" X inner JOIN B on A.A.x = B.Y LEFT JOIN C on C.y = A.d where A.A.x > 100",
+		"select count(DISTINCT A.name) from A.A X inner JOIN B on A.A.x = B.Y LEFT JOIN C on C.y = A.d where A.A.x > 100",
+		"select count(DISTINCT A.name) from A.A X inner JOIN B on A.A.x = B.Y LEFT JOIN C on C.y = A.d",
+		"select count(DISTINCT A.name) from A.A X join B on A.A.x = B.Y",
+		"select count(DISTINCT A.name) from A.A X join B",
+		"select count(DISTINCT A.name) from A.A X",
 		"select count(DISTINCT name) from A",
 		"select x, COUNT ( * ) from A group by x",
 		"select x, COUNT ( * ) from A group by x * 2",
@@ -40,6 +40,7 @@ func TestParser(t *testing.T) {
 
 	for _, sql := range testCases {
 		t.Run(sql, func(t *testing.T) {
+			defer catchPanic(t)
 			parser.YYDebug = 4
 			parseResult, res := parser.Parse(sql)
 			assert.GreaterOrEqual(t, 0, res)

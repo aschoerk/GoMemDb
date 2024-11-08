@@ -71,15 +71,15 @@ func extractAggregation(t *GoSqlTerm) ([]*GoSqlTerm, bool) {
 }
 
 func collectAggregation(r *GoSqlSelectRequest) ([]AggTermsBySelectListEntry, error) {
-	aggregationsTerms := []AggTermsBySelectListEntry{}
+	var aggregationsTerms []AggTermsBySelectListEntry
 	for ix, sl := range r.selectList {
 		res, usesIdentifiers := extractAggregation(sl.expression)
 		if res != nil && len(res) > 0 {
 			if usesIdentifiers {
 				return nil, errors.New("illegal use of attributes and aggregationfunctions together")
 			}
-			names := []string{}
-			for ix2, _ := range res {
+			var names []string
+			for ix2 := range res {
 				names = append(names, fmt.Sprintf("agg%d_%d", ix, ix2))
 			}
 			aggregationsTerms = append(aggregationsTerms, AggTermsBySelectListEntry{&sl, res, names})
@@ -98,7 +98,7 @@ func collectAggregation(r *GoSqlSelectRequest) ([]AggTermsBySelectListEntry, err
 // if one select list entry uses:
 //
 //	all select list entry must be aggregations or constant expressions
-//	arguments of aggregations build the select list for the first temporary joinExpr. * stands for id (internal)
+//	arguments of aggregations build the select list for the first temporary tableExpr. * stands for id (internal)
 //	the aggregation functions are evaluated over the corresponding select list entry
 //	the term around the aggregation is evaluated to create together with the constant entries the new result of one record.
 func buildAggregationSelectList(r *GoSqlSelectRequest) ([]*GoSqlTerm, []SLName, []AggTermsBySelectListEntry, error) {
@@ -106,11 +106,11 @@ func buildAggregationSelectList(r *GoSqlSelectRequest) ([]*GoSqlTerm, []SLName, 
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	res := []*GoSqlTerm{}
-	resNames := []SLName{}
+	var res []*GoSqlTerm
+	var resNames []SLName
 	for _, aggTerm := range aggregationTerms {
 		if aggTerm.aggregationTerms != nil {
-			for ix, _ := range aggTerm.aggregationTerms {
+			for ix := range aggTerm.aggregationTerms {
 				t := aggTerm.aggregationTerms[ix]
 				name := aggTerm.tmpSlNames[ix]
 				if t.left.operator != ASTERISK {
@@ -130,14 +130,15 @@ func buildAggregationSelectList(r *GoSqlSelectRequest) ([]*GoSqlTerm, []SLName, 
 	return res, resNames, aggregationTerms, nil
 }
 
-func buildSelectList(table data.Table, r *GoSqlSelectRequest) ([]*GoSqlTerm, []SLName, error) {
-	terms := []*GoSqlTerm{}
-	names := []SLName{}
+func buildSelectList(table *JoinedRecords, r *GoSqlSelectRequest) ([]*GoSqlTerm, []SLName, error) {
+	var terms []*GoSqlTerm
+	var names []SLName
 	for ix, sl := range r.selectList {
-		if sl.Asterisk {
-			for _, col := range table.Columns() {
-				terms = append(terms, &GoSqlTerm{-1, nil, nil, &Ptr{data.GoSqlIdentifier{[]string{col.Name}}, IDENTIFIER}})
-				names = append(names, SLName{col.Name, false})
+		if sl.Asterisk { // TODO: <tablename>.*, <alias>.*
+			ids, _ := table.allIdentifiersAndTypes()
+			for _, id := range ids {
+				terms = append(terms, &GoSqlTerm{-1, nil, nil, &Ptr{id, IDENTIFIER}})
+				names = append(names, SLName{id.Name(), false})
 			}
 		} else {
 			if len(sl.Alias) != 0 {
@@ -145,7 +146,7 @@ func buildSelectList(table data.Table, r *GoSqlSelectRequest) ([]*GoSqlTerm, []S
 			} else {
 				leaf := sl.expression.leaf
 				if leaf != nil && leaf.token == IDENTIFIER {
-					names = append(names, SLName{leaf.ptr.(data.GoSqlIdentifier).Parts[0], false})
+					names = append(names, SLName{leaf.ptr.(data.GoSqlIdentifier).Name(), false})
 				} else {
 					names = append(names, SLName{strconv.Itoa(ix), false})
 				}
@@ -159,14 +160,13 @@ func buildSelectList(table data.Table, r *GoSqlSelectRequest) ([]*GoSqlTerm, []S
 			if !ok {
 				name, ok2 := o.Name.(data.GoSqlIdentifier)
 				if ok2 {
-					if !slices.ContainsFunc(names, func(a SLName) bool { return a.name == name.Parts[0] }) {
-						colix, err := table.FindColumn(name.Parts[0])
+					if !slices.ContainsFunc(names, func(a SLName) bool { return a.name == name.Name() }) {
+						_, _, _, err := table.identifyId(name)
 						if err != nil {
 							return nil, nil, err
 						}
-						col := table.Columns()[colix]
-						terms = append(terms, &GoSqlTerm{-1, nil, nil, &Ptr{data.GoSqlIdentifier{[]string{col.Name}}, IDENTIFIER}})
-						names = append(names, SLName{col.Name, true})
+						terms = append(terms, &GoSqlTerm{-1, nil, nil, &Ptr{name, IDENTIFIER}})
+						names = append(names, SLName{name.Name(), true})
 					}
 				} else {
 					return nil, nil, fmt.Errorf("Order by column: %s not found in tuple", name)
@@ -180,7 +180,18 @@ func buildSelectList(table data.Table, r *GoSqlSelectRequest) ([]*GoSqlTerm, []S
 
 func (r *GoSqlSelectRequest) Query(args []Value) (Rows, error) {
 	if r.State == data.Created {
-		table, _ := data.GetTable(r.BaseStatement, r.from[0].Id.Id)
+		fromHandler := GoSqlFromHandler{}
+		errs := fromHandler.Init(r)
+		if errs != nil && len(errs) > 0 {
+			res := ""
+			for _, err := range errs {
+				res += err.Error()
+				res += "\n"
+			}
+			return nil, fmt.Errorf("fromHandler: %s", res)
+		}
+		joinedRecord := fromHandler.joinedRecord
+		// table, _ := data.GetTable(r.BaseStatement, r.from[0].Id.Id)
 		r.State = data.Parsed
 		// determine source-tuple ()
 		// create machines
@@ -195,7 +206,7 @@ func (r *GoSqlSelectRequest) Query(args []Value) (Rows, error) {
 			return nil, err
 		}
 		if len(aggTermsBySelectListEntry) == 0 {
-			terms, names, err = buildSelectList(table, r)
+			terms, names, err = buildSelectList(&joinedRecord, r)
 			if err != nil {
 				return nil, err
 			}
@@ -213,8 +224,8 @@ func (r *GoSqlSelectRequest) Query(args []Value) (Rows, error) {
 			termNum++
 		}
 		placeHolderOffset := 0
-		evaluationContexts := []*EvaluationContext{}
-		evaluationResults, err := Terms2Commands(terms, args, table, &placeHolderOffset)
+		var evaluationContexts []*EvaluationContext
+		evaluationResults, err := Terms2Commands(terms, args, &joinedRecord, &placeHolderOffset)
 		if err != nil {
 			return nil, err
 		}
@@ -229,8 +240,8 @@ func (r *GoSqlSelectRequest) Query(args []Value) (Rows, error) {
 			return &GoSqlRows{r, temptable.Name(), &names, 0}, nil
 		} else {
 			table := temptable
-			terms := []*GoSqlTerm{}
-			names := []SLName{}
+			var terms []*GoSqlTerm
+			var names []SLName
 
 			aggTermCount := 0
 			for ix, aTerm := range aggTermsBySelectListEntry {
@@ -271,7 +282,7 @@ func (r *GoSqlSelectRequest) Query(args []Value) (Rows, error) {
 				return nil, err
 			}
 			aggTmpTable := createTempTable(evaluationResults, &names, len(names))
-			resTuple := []Value{}
+			var resTuple []Value
 			for _, ev := range evaluationResults {
 				res, err := ev.m.Execute(args, data.NULL_TUPLE, data.NULL_TUPLE)
 				if err != nil {
@@ -297,14 +308,14 @@ func iterateAggregation(table data.Table, aggTermCount int, term *GoSqlTerm, agg
 	coltype := table.Columns()[aggTermCount].ColType
 	var actValue Value
 	for {
-		tuple, found, err := it.Next(func(tupleData []Value) (bool, error) { return true, nil })
+		tuple, found, err := it.Next(func(tupleData data.Tuple) (bool, error) { return true, nil })
 		if err != nil {
 			return err
 		}
 		if !found {
 			break
 		}
-		value := tuple.Data[aggTermCount]
+		value, _ := tuple.Data(0, aggTermCount)
 
 		if value != nil {
 			if checkSet {
@@ -550,7 +561,7 @@ func doCount(table data.Table, aggTermCount int, term *GoSqlTerm) error {
 }
 
 func createTempTable(evaluationContexts []*EvaluationContext, names *[]SLName, sizeSelectList int) data.Table {
-	cols := []data.GoSqlColumn{}
+	var cols []data.GoSqlColumn
 	for ix, execution := range evaluationContexts {
 		if ix < sizeSelectList {
 			cols = append(cols, data.GoSqlColumn{(*names)[ix].name, execution.resultType, execution.resultType, 0, 0, (*names)[ix].hidden})
@@ -574,11 +585,11 @@ func (r *GoSqlSelectRequest) createAndFillTempTable(
 
 	it := table.NewIterator(query.BaseData(), forUpdate == FOR)
 	for {
-		tuple, ok, err := it.Next(func(tupleData []Value) (bool, error) {
+		tuple, ok, err := it.Next(func(tupleData data.Tuple) (bool, error) {
 			if whereExecutionContext != -1 {
 				whereCheck := evaluationContexts[whereExecutionContext]
 
-				result, err := whereCheck.m.Execute(args, data.Tuple{Id: -1, Data: tupleData}, data.NULL_TUPLE)
+				result, err := whereCheck.m.Execute(args, tupleData, data.NULL_TUPLE)
 				if err != nil {
 					return false, err
 				}
@@ -615,7 +626,7 @@ func (r *GoSqlSelectRequest) createAndFillTempTable(
 		slices.SortFunc(
 			*tempTable.Data(),
 			func(a, b []Value) int {
-				res, err := e.m.Execute(args, data.Tuple{-1, a}, data.Tuple{-1, b})
+				res, err := e.m.Execute(args, data.NewTuple(-1, a), data.NewTuple(-1, b))
 				if err != nil {
 					panic(err.Error())
 				}
@@ -627,7 +638,7 @@ func (r *GoSqlSelectRequest) createAndFillTempTable(
 }
 
 func calcTuple(tempTable data.Table, args []Value, evaluationContexts []*EvaluationContext, tuple data.Tuple, sizeSelectList int) error {
-	destTuple := []Value{}
+	var destTuple []Value
 	for ix, execution := range evaluationContexts {
 		if ix < sizeSelectList {
 			res, err := execution.m.Execute(args, tuple, data.NULL_TUPLE)
@@ -650,7 +661,7 @@ type GoSqlRows struct {
 }
 
 func (rows *GoSqlRows) Columns() []string {
-	res := []string{}
+	var res []string
 	for _, el := range *rows.names {
 		if !el.hidden {
 			res = append(res, el.name)

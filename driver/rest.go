@@ -120,7 +120,7 @@ func convertArgs(args []driver.Value, types *[]int) []driver.Value {
 			res[ix] = int64(v)
 		case float32:
 		case float64:
-			f := float64(v)
+			f := v
 			if types != nil {
 				if (*types)[ix] == parser.INTEGER {
 					res[ix] = int64(v)
@@ -210,7 +210,7 @@ func (s *Server) evaluateRequest(w http.ResponseWriter, r *http.Request) (*Serve
 		return nil, nil, false
 	}
 
-	args := []driver.Value{}
+	var args []driver.Value
 	if err := json.NewDecoder(r.Body).Decode(&args); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return nil, nil, false
@@ -273,7 +273,7 @@ func (s *Server) queryStatement(w http.ResponseWriter, r *http.Request) {
 
 	tmpRows := rows.(*parser.GoSqlRows)
 	if tmpRows.ResultTable() != nil {
-		types := []int{}
+		var types []int
 		for _, col := range tmpRows.ResultTable().Columns() {
 			types = append(types, col.ColType)
 		}

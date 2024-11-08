@@ -52,7 +52,7 @@ func (r *GoSqlSelectRequest) analyze() ([]SLE, error) {
 		aggterms  []*GoSqlTerm
 	}
 
-	slinfos := []slinfo{}
+	var slinfos []slinfo
 	for _, s := range r.selectList {
 		info := slinfo{nil, nil}
 		info.aggterms = findAggregateTerms(s.expression, nil)

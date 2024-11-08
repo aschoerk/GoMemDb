@@ -39,7 +39,7 @@ type GoSqlFromHandler struct {
 	identifierMap  map[*GoSqlTerm]IdentifierMapEntry
 	fromExprs      []*FromExpr
 	equalJoinParts []equalJoinPart
-	joinedRecord   JoinedRecord
+	joinedRecord   JoinedRecords
 }
 
 // describes a table expression in the From-Part including the preceding jointype, if there is one
@@ -59,7 +59,7 @@ type TableViewData struct {
 	table   data.Table
 	isOuter bool
 	cols    []int
-	tuples  []*data.Tuple
+	tuples  []data.Tuple
 }
 
 // describes one chain of joins
@@ -86,10 +86,10 @@ func (g *GoSqlFromHandler) Init(selectStatement *GoSqlSelectRequest) []error {
 	return errs
 }
 
-func lessThan(tableViewData, btableViewData *TableViewData, a, b *data.Tuple) bool {
+func lessThan(tableViewData, btableViewData *TableViewData, a, b data.Tuple) bool {
 	for ix := 0; ix < len(tableViewData.cols); ix++ {
-		v := a.Data[tableViewData.cols[ix]]
-		w := b.Data[btableViewData.cols[ix]]
+		v, _ := a.Data(0, tableViewData.cols[ix])
+		w, _ := b.Data(0, btableViewData.cols[ix])
 		if v != w {
 			switch v.(type) {
 			case int64:
@@ -122,14 +122,13 @@ func sortView(arr *TableViewData) {
 // creates the TableViewData for a table, as returned by the TableIterator (so should fit to the current snapshot)
 // sorted!
 func getTableView(cols []int, isOuter bool, it data.TableIterator) (*TableViewData, error) {
-	var tuples = make([]*data.Tuple, 0)
+	var tuples = make([]data.Tuple, 0)
 	for {
-		tuple, found, err := it.Next(func(value []driver.Value) (bool, error) {
+		tuple, found, err := it.Next(func(value data.Tuple) (bool, error) {
 			return true, nil
 		})
 		if err != nil {
 			return nil, err
-			break
 		}
 		if !found {
 			break
@@ -137,9 +136,10 @@ func getTableView(cols []int, isOuter bool, it data.TableIterator) (*TableViewDa
 		view := make([]driver.Value, len(cols)+1)
 		view[0] = tuple.Id
 		for i, col := range cols {
-			view[i+1] = tuple.Data[col]
+			val, _ := tuple.Data(0, col)
+			view[i+1] = val
 		}
-		tuples = append(tuples, &tuple)
+		tuples = append(tuples, tuple)
 	}
 	res := &TableViewData{it.GetTable(), isOuter, cols, tuples}
 	sortView(res)
@@ -147,19 +147,19 @@ func getTableView(cols []int, isOuter bool, it data.TableIterator) (*TableViewDa
 }
 
 // given two tables joined by an simple equal-join over arbitrary columns.
-func createIdView(left, right *TableViewData) [][]*data.Tuple {
-	res := make([][]*data.Tuple, 0)
+func createIdView(left, right *TableViewData) [][]data.Tuple {
+	res := make([][]data.Tuple, 0)
 	rightLen, leftLen := len(right.tuples), len(left.tuples)
 	if rightLen == 0 || leftLen == 0 {
 		return res
 	}
 	rix, lix := 0, 0
 
-	pair := func(left, right *data.Tuple) []*data.Tuple {
-		return []*data.Tuple{left, right}
+	pair := func(left, right data.Tuple) []data.Tuple {
+		return []data.Tuple{left, right}
 	}
 
-	nullTuple := &data.Tuple{Id: -1}
+	nullTuple := data.NULL_TUPLE
 
 	for lix < leftLen && rix < rightLen {
 		leftValue, rightValue := left.tuples[lix], right.tuples[rix]
@@ -230,20 +230,20 @@ func (g *GoSqlFromHandler) handlePureEqualJoins() (bool, []error) {
 	return false, errors
 }
 
-func mergeToRecords(joinedRecord *JoinedRecord, matchColumn int, pairs [][]*data.Tuple, pairMatchColumn int) {
+func mergeToRecords(joinedRecord *JoinedRecords, matchColumn int, pairs [][]data.Tuple, pairMatchColumn int) {
 	records := joinedRecord.records
 	leftLen, rightLen := len(records), len(pairs)
 	sort.Slice(records, func(i, j int) bool {
-		return records[i][matchColumn].Id < records[j][matchColumn].Id
+		return records[i][matchColumn].Id() < records[j][matchColumn].Id()
 	})
 	sort.Slice(pairs, func(i, j int) bool {
-		return pairs[i][pairMatchColumn].Id < pairs[j][pairMatchColumn].Id
+		return pairs[i][pairMatchColumn].Id() < pairs[j][pairMatchColumn].Id()
 	})
 	lix, rix := 0, 0
 	for lix < leftLen && rix < rightLen {
 		leftValue, rightValue := records[lix][matchColumn], pairs[rix][pairMatchColumn]
 		switch {
-		case leftValue.Id == rightValue.Id:
+		case leftValue.Id() == rightValue.Id():
 			firstLeftEntry := records[lix]
 			records[lix] = append(firstLeftEntry, pairs[rix][1-pairMatchColumn])
 			rix++
@@ -252,21 +252,21 @@ func mergeToRecords(joinedRecord *JoinedRecord, matchColumn int, pairs [][]*data
 				rix++
 			}
 			lix++
-		case leftValue.Id < rightValue.Id:
+		case leftValue.Id() < rightValue.Id():
 			// no matching, remove if no outer join by this table, else keep
 			lix++
-		case rightValue.Id > leftValue.Id:
+		case rightValue.Id() > leftValue.Id():
 			// no matching of the pair ignore if there is no outer join
 			rix++
 		}
 	}
-	nullTuple := &data.Tuple{Id: -1}
-	newRecords := [][]*data.Tuple{}
+	nullTuple := data.NULL_TUPLE
+	var newRecords [][]data.Tuple
 	for _, record := range records {
 		if len(record) == leftLen {
 			var ix int
 			for ix = 0; ix < leftLen; ix++ {
-				if record[ix].Id != -1 && joinedRecord.joinExpr[ix].isOuter {
+				if record[ix].Id() != -1 && joinedRecord.tableExpr[ix].isOuter {
 					newRecords = append(newRecords, append(record, nullTuple))
 					break
 				}
@@ -279,47 +279,46 @@ func mergeToRecords(joinedRecord *JoinedRecord, matchColumn int, pairs [][]*data
 }
 
 func (g *GoSqlFromHandler) createJoinedRecord(pairs []*equalJoin) {
-	res := JoinedRecord{[]*TableExpr{}, [][]*data.Tuple{}}
-	for _, pair := range pairs {
-		left := pair.exprs[0].left.joinExpr
-		if !slices.Contains(res.joinExpr, left) {
-			res.joinExpr = append(res.joinExpr, left)
-		}
-		right := pair.exprs[0].right.joinExpr
-		if !slices.Contains(res.joinExpr, right) {
-			res.joinExpr = append(res.joinExpr, right)
-		}
-	}
-	first := true
-	for _, pair := range pairs {
-		if first {
-			first = false
-			for _, v := range pair.idView {
-				res.records = append(res.records, v)
+	res := JoinedRecords{[]*TableExpr{}, [][]data.Tuple{}}
+	if len(pairs) == 0 {
+		res.tableExpr = append(res.tableExpr, g.fromExprs[0].tableExprs[0])
+	} else {
+		for _, pair := range pairs {
+			left := pair.exprs[0].left.joinExpr
+			if !slices.Contains(res.tableExpr, left) {
+				res.tableExpr = append(res.tableExpr, left)
 			}
-		} else {
-			// identify matching column
-			ix := slices.Index(res.joinExpr, pair.exprs[0].left.joinExpr)
-			if ix < 0 {
-				ix = slices.Index(res.joinExpr, pair.exprs[0].right.joinExpr)
-				mergeToRecords(&res, ix, pair.idView, 1)
+			right := pair.exprs[0].right.joinExpr
+			if !slices.Contains(res.tableExpr, right) {
+				res.tableExpr = append(res.tableExpr, right)
+			}
+		}
+		first := true
+		for _, pair := range pairs {
+			if first {
+				first = false
+				for _, v := range pair.idView {
+					res.records = append(res.records, v)
+				}
 			} else {
-				mergeToRecords(&res, ix, pair.idView, 0)
+				// identify matching column
+				ix := slices.Index(res.tableExpr, pair.exprs[0].left.joinExpr)
+				if ix < 0 {
+					ix = slices.Index(res.tableExpr, pair.exprs[0].right.joinExpr)
+					mergeToRecords(&res, ix, pair.idView, 1)
+				} else {
+					mergeToRecords(&res, ix, pair.idView, 0)
+				}
 			}
 		}
 	}
 	g.joinedRecord = res
 }
 
-type JoinedRecord struct {
-	joinExpr []*TableExpr
-	records  [][]*data.Tuple
-}
-
 func (g *GoSqlFromHandler) enhanceEqualJoinByIdPairs(pairs []*equalJoin, errors []error) []error {
 	for _, pair := range pairs {
-		leftIx := []int{}
-		rightIx := []int{}
+		var leftIx []int
+		var rightIx []int
 		for _, join := range pair.exprs {
 			leftIx = append(leftIx, join.left.colix)
 			rightIx = append(rightIx, join.right.colix)
@@ -345,7 +344,7 @@ func (g *GoSqlFromHandler) enhanceEqualJoinByIdPairs(pairs []*equalJoin, errors 
 }
 
 func (g *GoSqlFromHandler) createPairs() []*equalJoin {
-	perPair := [][]equalJoinPart{}
+	var perPair [][]equalJoinPart
 	for _, join := range g.equalJoinParts {
 		found := false
 		for ix, pairs := range perPair {
@@ -381,7 +380,7 @@ type equalJoinPart struct {
 
 type equalJoin struct {
 	exprs  []equalJoinPart
-	idView [][]*data.Tuple
+	idView [][]data.Tuple
 }
 
 func (g *GoSqlFromHandler) onlyEqualJoinExpression(term *GoSqlTerm) bool {
@@ -441,20 +440,20 @@ func (g *GoSqlFromHandler) checkAndInitDataStructures(selectStatement *GoSqlSele
 	var tableMap = make(map[data.Table]data.Table)
 	idHandler := func(id GoSqlAsIdentifier) *TableExpr {
 		if joinExpr, exists := g.identifyTable(id); !exists {
-			errs = append(errs, fmt.Errorf("joinExpr %v does not exist", id))
+			errs = append(errs, fmt.Errorf("tableExpr %v does not exist", id))
 			return nil
 		} else {
 			fromExpr := g.fromExprs[len(g.fromExprs)-1]
 			fromExpr.tableExprs = append(fromExpr.tableExprs, joinExpr)
 			if len(joinExpr.alias) != 0 {
 				if _, exists := asDefinitions[joinExpr.alias]; exists {
-					errs = append(errs, fmt.Errorf("duplicate alias-definition for joinExpr %v", joinExpr.alias))
+					errs = append(errs, fmt.Errorf("duplicate alias-definition for tableExpr %v", joinExpr.alias))
 				} else {
 					asDefinitions[joinExpr.alias] = joinExpr
 				}
 			} else {
 				if _, exists := tableMap[joinExpr.table]; exists {
-					errs = append(errs, fmt.Errorf("duplicate joinExpr-definition without alias for joinExpr %v", joinExpr.table))
+					errs = append(errs, fmt.Errorf("duplicate tableExpr-definition without alias for tableExpr %v", joinExpr.table))
 				} else {
 					tableMap[joinExpr.table] = joinExpr.table
 				}
@@ -473,7 +472,7 @@ func (g *GoSqlFromHandler) checkAndInitDataStructures(selectStatement *GoSqlSele
 				joinExpr.joinType = joinSpec.JoinMode
 			}
 			if joinExpr.joinType == CROSS && joinSpec.JoinCondition != nil {
-				errs = append(errs, fmt.Errorf("cross join condition defined for joinExpr %v", spec.Id))
+				errs = append(errs, fmt.Errorf("cross join condition defined for tableExpr %v", spec.Id))
 			} else {
 				actFromExpr := g.fromExprs[len(g.fromExprs)-1]
 				switch joinExpr.joinType {
@@ -489,13 +488,13 @@ func (g *GoSqlFromHandler) checkAndInitDataStructures(selectStatement *GoSqlSele
 				joinExpr.condition = condition
 				aggr := findAggregateTerms(condition, nil)
 				if aggr != nil {
-					errs = append(errs, fmt.Errorf("aggregate term defined for joinExpr %v", spec.Id))
+					errs = append(errs, fmt.Errorf("aggregate term defined for tableExpr %v", spec.Id))
 				}
 				identifierTerms := findIdentifiers(condition, nil)
 				for _, identifierTerm := range identifierTerms {
 					id := identifierTerm.leaf.ptr.(data.GoSqlIdentifier)
 					var matchedJoinExpr *TableExpr
-					var matchIx int = -1
+					var matchIx = -1
 					for _, joinExpr := range actFromExpr.tableExprs {
 						matches, columnix, err := matchIdToJoinExpr(g.baseStmt, &id, joinExpr)
 						if err != nil {
@@ -505,7 +504,7 @@ func (g *GoSqlFromHandler) checkAndInitDataStructures(selectStatement *GoSqlSele
 								matchedJoinExpr = joinExpr
 								matchIx = columnix
 							} else {
-								errs = append(errs, fmt.Errorf("duplicate join expression for joinExpr %v", spec.Id))
+								errs = append(errs, fmt.Errorf("duplicate join expression for tableExpr %v", spec.Id))
 							}
 						}
 					}
@@ -552,11 +551,16 @@ func matchIdToJoinExpr(baseStmt data.BaseStatement, id *data.GoSqlIdentifier, ex
 type JoinedRecordTable struct {
 }
 
-func (r *JoinedRecord) getTable() {
-
-	return data.TempTable{}
+func (r *JoinedRecords) getTableIterator() data.TableIterator {
+	var viewColumns []data.GoSqlColumn
+	for _, e := range r.tableExpr {
+		for _, col := range e.table.Columns() {
+			viewColumns = append(viewColumns, col)
+		}
+	}
+	return nil
 }
 
-func (r *JoinedRecord) NewIterator() {
+func (r *JoinedRecords) NewIterator() {
 
 }
