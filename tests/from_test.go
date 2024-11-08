@@ -25,7 +25,7 @@ func Test(t *testing.T) {
 		tablesNo int
 	}{
 		{
-			`SELECT b.title
+			`SELECT b.title, b.genre
 					FROM books b`,
 			0, 1,
 		}, {
@@ -91,8 +91,24 @@ func Test(t *testing.T) {
 			r.BaseData().Conn = &data.GoSqlConnData{CurrentSchema: "public"}
 			fromHandler := parser.GoSqlFromHandler{}
 			errs := fromHandler.Init(r)
-
 			assert.Equal(t, tt.errsNo, len(errs))
+
+			rows, err := db.Query(tt.stmt)
+			if err != nil {
+				t.Fatalf("Query failed: %v", err)
+			}
+			defer rows.Close()
+
+			var results []string
+			for rows.Next() {
+				var name string
+				var name2 string
+				if err := rows.Scan(&name, &name2); err != nil {
+					t.Fatalf("Failed to scan row: %v", err)
+				}
+				results = append(results, name)
+			}
+
 		})
 	}
 

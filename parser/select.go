@@ -230,7 +230,8 @@ func (r *GoSqlSelectRequest) Query(args []Value) (Rows, error) {
 			return nil, err
 		}
 		evaluationContexts = append(evaluationContexts, evaluationResults...)
-		temptable, err := r.createAndFillTempTable(r, evaluationContexts, args, &names, whereExecutionContext, havingExecutionContext, sizeSelectList, r.forupdate)
+		it := joinedRecord.getTableIterator(r.BaseStatement)
+		temptable, err := r.createAndFillTempTable(r, it, evaluationContexts, args, &names, whereExecutionContext, havingExecutionContext, sizeSelectList, r.forupdate)
 		if err != nil {
 			return nil, err
 		}
@@ -572,6 +573,7 @@ func createTempTable(evaluationContexts []*EvaluationContext, names *[]SLName, s
 
 func (r *GoSqlSelectRequest) createAndFillTempTable(
 	query *GoSqlSelectRequest,
+	it data.TableIterator,
 	evaluationContexts []*EvaluationContext,
 	args []Value,
 	names *[]SLName,
@@ -581,9 +583,6 @@ func (r *GoSqlSelectRequest) createAndFillTempTable(
 	forUpdate int) (data.Table, error) {
 
 	tempTable := createTempTable(evaluationContexts, names, sizeSelectList)
-	table, _ := data.GetTable(r.BaseStatement, query.from[0].Id.Id)
-
-	it := table.NewIterator(query.BaseData(), forUpdate == FOR)
 	for {
 		tuple, ok, err := it.Next(func(tupleData data.Tuple) (bool, error) {
 			if whereExecutionContext != -1 {

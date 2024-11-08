@@ -547,20 +547,3 @@ func matchIdToJoinExpr(baseStmt data.BaseStatement, id *data.GoSqlIdentifier, ex
 	}
 	return false, -1, nil
 }
-
-type JoinedRecordTable struct {
-}
-
-func (r *JoinedRecords) getTableIterator() data.TableIterator {
-	var viewColumns []data.GoSqlColumn
-	for _, e := range r.tableExpr {
-		for _, col := range e.table.Columns() {
-			viewColumns = append(viewColumns, col)
-		}
-	}
-	return nil
-}
-
-func (r *JoinedRecords) NewIterator() {
-
-}

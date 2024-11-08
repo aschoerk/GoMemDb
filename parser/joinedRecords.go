@@ -111,3 +111,39 @@ func (r *JoinedRecords) identifyId(identifier data.GoSqlIdentifier) (int, int, i
 	}
 	return resTix, resCix, resType, nil
 }
+
+type JoinedRecordTable struct {
+}
+
+func (r *JoinedRecords) getTableIterator(statement data.BaseStatement) data.TableIterator {
+	if len(r.records) == 0 && len(r.tableExpr) == 1 {
+		return r.tableExpr[0].table.NewIterator(statement.BaseData(), false)
+	}
+	var viewColumns []data.GoSqlColumn
+	for _, e := range r.tableExpr {
+		for _, col := range e.table.Columns() {
+			viewColumns = append(viewColumns, col)
+		}
+	}
+	return &JoinedRecordsIterator{r, viewColumns, 0}
+}
+
+type JoinedRecordsIterator struct {
+	j           *JoinedRecords
+	viewColumns []data.GoSqlColumn
+	ix          int
+}
+
+func (j *JoinedRecordsIterator) GetTable() data.Table {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (j *JoinedRecordsIterator) Next(f func(tuple data.Tuple) (bool, error)) (data.Tuple, bool, error) {
+	if j.ix < len(j.j.records) {
+		j.ix++
+		return &JoinedRecord{j.j.records[j.ix-1]}, true, nil
+	} else {
+		return nil, false, nil
+	}
+}
