@@ -230,42 +230,60 @@ func (g *GoSqlFromHandler) handlePureEqualJoins() (bool, []error) {
 	return false, errors
 }
 
-func mergeToRecords(joinedRecord *JoinedRecords, matchColumn int, pairs [][]data.Tuple, pairMatchColumn int) {
-	records := joinedRecord.records
-	leftLen, rightLen := len(records), len(pairs)
+func join(records [][]data.Tuple, leftCol int, pair [][]data.Tuple, rightCol int, newIsOuter bool) ([][]data.Tuple, [][]data.Tuple) {
+	leftLen, rightLen := len(records), len(pair)
+	if leftLen == 0 || rightLen == 0 {
+		return records, pair
+	}
+	var recordLen = len(records[0])
 	sort.Slice(records, func(i, j int) bool {
-		return records[i][matchColumn].Id() < records[j][matchColumn].Id()
+		return records[i][leftCol].Id() < records[j][leftCol].Id()
 	})
-	sort.Slice(pairs, func(i, j int) bool {
-		return pairs[i][pairMatchColumn].Id() < pairs[j][pairMatchColumn].Id()
+	sort.Slice(pair, func(i, j int) bool {
+		return pair[i][rightCol].Id() < pair[j][rightCol].Id()
 	})
+	emptyPrefix := make([]data.Tuple, recordLen)
+	if newIsOuter {
+		for i := 0; i < recordLen; i++ {
+			emptyPrefix[i] = data.NewSliceTuple(-1, nil)
+		}
+	}
 	lix, rix := 0, 0
+	unmatchedPairs := make([][]data.Tuple, 0)
 	for lix < leftLen && rix < rightLen {
-		leftValue, rightValue := records[lix][matchColumn], pairs[rix][pairMatchColumn]
+		leftValue, rightValue := records[lix][leftCol], pair[rix][rightCol]
 		switch {
 		case leftValue.Id() == rightValue.Id():
+			startRix := rix
 			firstLeftEntry := records[lix]
-			records[lix] = append(firstLeftEntry, pairs[rix][1-pairMatchColumn])
+			records[lix] = append(firstLeftEntry, pair[rix][1-rightCol])
 			rix++
-			for rix < rightLen && pairs[rix][pairMatchColumn] == leftValue {
-				records = append(records, append(firstLeftEntry, pairs[rix][1-pairMatchColumn]))
+			for rix < rightLen && pair[rix][rightCol].Id() == leftValue.Id() {
+				records = append(records, append(firstLeftEntry, pair[rix][1-rightCol]))
 				rix++
 			}
+			rix = startRix
 			lix++
 		case leftValue.Id() < rightValue.Id():
 			// no matching, remove if no outer join by this table, else keep
 			lix++
-		case rightValue.Id() > leftValue.Id():
-			// no matching of the pair ignore if there is no outer join
+		case rightValue.Id() < leftValue.Id():
+			if newIsOuter {
+				records = append(records, append(emptyPrefix, pair[rix][1-rightCol]))
+			}
 			rix++
 		}
 	}
+	return records, unmatchedPairs
+}
+
+func handleUnMatched(records [][]data.Tuple, leftCol int, orgLen int, joinedRecord *JoinedRecords) {
 	nullTuple := data.NULL_TUPLE
 	var newRecords [][]data.Tuple
 	for _, record := range records {
-		if len(record) == leftLen {
+		if len(record) == orgLen { // record was skipped, check if one of its columns need to be outer, then keep
 			var ix int
-			for ix = 0; ix < leftLen; ix++ {
+			for ix = 0; ix < orgLen; ix++ {
 				if record[ix].Id() != -1 && joinedRecord.tableExpr[ix].isOuter {
 					newRecords = append(newRecords, append(record, nullTuple))
 					break
@@ -276,6 +294,14 @@ func mergeToRecords(joinedRecord *JoinedRecords, matchColumn int, pairs [][]data
 		}
 	}
 	joinedRecord.records = newRecords
+}
+
+func mergeToRecords(joinedRecord *JoinedRecords, matchColumn int, pairs [][]data.Tuple, pairMatchColumn int, newIsOuter bool) {
+	orgLen := len(joinedRecord.records[0])
+	records := joinedRecord.records
+	records, _ = join(records, matchColumn, pairs, pairMatchColumn, newIsOuter)
+	// handleUnMatchedPairs(unMatchedPairs, pairMatchColumn)
+	handleUnMatched(records, matchColumn, orgLen, joinedRecord)
 }
 
 func (g *GoSqlFromHandler) createJoinedRecord(pairs []*equalJoin) {
@@ -304,10 +330,10 @@ func (g *GoSqlFromHandler) createJoinedRecord(pairs []*equalJoin) {
 				// identify matching column
 				ix := slices.Index(res.tableExpr, pair.exprs[0].left.joinExpr)
 				if ix < 0 {
-					ix = slices.Index(res.tableExpr, pair.exprs[0].right.joinExpr)
-					mergeToRecords(&res, ix, pair.idView, 1)
+					ix = slices.Index(res.tableExpr, pair.exprs[1].right.joinExpr)
+					mergeToRecords(&res, ix, pair.idView, 1, pair.exprs[0].left.joinExpr.isOuter)
 				} else {
-					mergeToRecords(&res, ix, pair.idView, 0)
+					mergeToRecords(&res, ix, pair.idView, 0, pair.exprs[1].left.joinExpr.isOuter)
 				}
 			}
 		}

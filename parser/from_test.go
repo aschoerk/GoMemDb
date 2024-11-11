@@ -16,15 +16,15 @@ func dv(v ...data.Tuple) *TableViewData {
 }
 
 func v(a ...driver.Value) data.Tuple {
-	res := data.NewTuple(int64(a[0].(int)), make([]driver.Value, len(a)-1))
+	res := data.NewSliceTuple(int64(a[0].(int)), make([]driver.Value, len(a)-1))
 	for i := 1; i < len(a); i++ {
 		switch a[i].(type) {
 		case int:
-			res.SetData(i-1, 0, int64(a[i].(int)))
+			res.SetData(0, i-1, int64(a[i].(int)))
 		case float32:
-			res.SetData(i-1, 0, float64(a[i].(float32)))
+			res.SetData(0, i-1, float64(a[i].(float32)))
 		default:
-			res.SetData(i-1, 0, a[i])
+			res.SetData(0, i-1, a[i])
 		}
 	}
 	return res
@@ -162,6 +162,124 @@ func Test_lessThan(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			assert.Equalf(t, tt.want, lessThan(dv(tt.args.a), dv(tt.args.b), tt.args.a, tt.args.b), "lessThan(%v, %v)", tt.args.a, tt.args.b)
+		})
+	}
+}
+
+func r(idArrays ...[]int) [][]data.Tuple {
+	var res [][]data.Tuple
+	for _, idArray := range idArrays {
+		var recordRes []data.Tuple = nil
+		for _, id := range idArray {
+			recordRes = append(recordRes, data.NewSliceTuple(int64(id), nil))
+		}
+		res = append(res, recordRes)
+	}
+	return res
+}
+
+func i(i ...int) []int {
+	res := make([]int, len(i))
+	for i, v := range i {
+		res[i] = v
+	}
+	return res
+}
+
+func Test_join(t *testing.T) {
+	tests := []struct {
+		name       string
+		leftCol    int
+		records    [][]data.Tuple
+		rightCol   int
+		pairs      [][]data.Tuple
+		newIsOuter bool
+		want       [][]data.Tuple
+	}{
+		{
+			"leftEmpty",
+			0, r(), 0, r(i(1, 3)), false, r(),
+		},
+		{
+			"leftOuterNotMatching",
+			0, r(i(-1, 1)), 0, r(i(1, 3)), false, r(i(-1, 1)),
+		},
+		{
+			"leftOuterMatching",
+			1, r(i(-1, 1)), 0, r(i(1, 3)), false, r(i(-1, 1, 3)),
+		},
+		{
+			"rightempty",
+			0, r(i(1, 2)), 1, r(), false, r(i(1, 2)),
+		},
+		{
+			"onerecordonepairmatching",
+			0, r(i(1, 2)), 1, r(i(3, 1)), false, r(i(1, 2, 3)),
+		},
+		{
+			"onerecordonepairnotmatchingbyright",
+			0, r(i(1, 2)), 1, r(i(1, 3)), false, r(i(1, 2)),
+		},
+		{
+			"onerecordonepairnotmatchingbyleft",
+			1, r(i(1, 2)), 1, r(i(1, 3)), false, r(i(1, 2)),
+		},
+		{
+			"onerecordonepairmatching",
+			0, r(i(1, 2)), 0, r(i(1, 3)), false, r(i(1, 2, 3)),
+		},
+		{
+			"onerecordonepairmatching",
+			0, r(i(1, 2)), 1, r(i(3, 1)), false, r(i(1, 2, 3)),
+		},
+		{
+			"onerecordonepairnotmatchingbyright",
+			0, r(i(1, 2)), 1, r(i(1, 3)), false, r(i(1, 2)),
+		},
+		{
+			"onerecordonepairnotmatchingbyleft",
+			1, r(i(1, 2)), 1, r(i(1, 3)), false, r(i(1, 2)),
+		},
+		{
+			"onerecordtwopairmatchingbyleft",
+			0, r(i(1, 2)), 0, r(i(1, 3), i(1, 4)),
+			false, r(i(1, 2, 3), i(1, 2, 4)),
+		},
+		{
+			"tworecordtwopaironematchingbyleft",
+			0, r(i(0, 2), i(1, 2)), 0, r(i(1, 3), i(1, 4)),
+			false, r(i(0, 2), i(1, 2, 3), i(1, 2, 4)),
+		},
+		{
+			"tworecordtwopaironematchingbyleft",
+			0, r(i(0, 2), i(1, 2), i(0, 2)), 0, r(i(1, 3), i(1, 4)),
+			false, r(i(0, 2), i(0, 2), i(1, 2, 3), i(1, 2, 4)),
+		},
+		{
+			"tworecordtwopaironematchingbyleftsortingright",
+			0, r(i(0, 2), i(1, 2), i(0, 2)), 1, r(i(1, 3), i(1, 4)),
+			false, r(i(0, 2), i(0, 2), i(1, 2)),
+		},
+		{
+			"tworecordtwopaironematchingbyleftsortingleft",
+			0, r(i(0, 2), i(1, 2), i(0, 2)), 0, r(i(1, 4), i(1, 3)),
+			false, r(i(0, 2), i(0, 2), i(1, 2, 4), i(1, 2, 3)), // only stable sorted by matching column
+		},
+		{
+			"tworecordtwopaironematchingbyleftsortingleft",
+			0, r(i(0, 2), i(1, 2), i(1, 3), i(0, 2)), 0, r(i(1, 4), i(1, 3)),
+			false, r(i(0, 2), i(0, 2), i(1, 2, 4), i(1, 3, 4), i(1, 2, 3), i(1, 3, 3)), // only stable sorted by matching column
+		},
+		{
+			"tworecordtwopaironematchingbyleftsortingleft",
+			0, r(i(0, 2), i(1, 2), i(1, 3), i(0, 2)), 0, r(i(1, 4), i(4, 3)),
+			false, r(i(0, 2), i(0, 2), i(1, 2, 4), i(1, 3, 4), i(1, 2, 3), i(-1, -1, 3)), // only stable sorted by matching column
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r, _ := join(tt.records, tt.leftCol, tt.pairs, tt.rightCol, tt.newIsOuter)
+			assert.Equalf(t, tt.want, r, "join(%v, %v, %v, %v)", tt.records, tt.leftCol, tt.pairs, tt.rightCol)
 		})
 	}
 }

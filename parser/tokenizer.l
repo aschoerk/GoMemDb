@@ -152,6 +152,7 @@ MIN { return MIN }
 MAX { return MAX }
 JOIN { return JOIN }
 OUTER { return OUTER }
+NATURAL { return NATURAL }
 LEFT { return LEFT }
 RIGHT { return RIGHT }
 FULL { return FULL }
@@ -213,7 +214,7 @@ ON { return ON }
 \/   { return DIVIDE }
 \(   { return POPEN }
 \)   { return PCLOSE }
-\,   { return KOMMA }
+\,   { return COMMA }
 \.   { return DOT }
 
 %%

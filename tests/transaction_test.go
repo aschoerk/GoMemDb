@@ -130,7 +130,7 @@ func (t *T) makeUIt() data.TableIterator {
 
 func (t *T) doU(id int64) bool {
 	nextUpdateValue++
-	return t.table.Update(id, data.NewTuple(-1, []Value{nextUpdateValue}), t.baseData.Conn)
+	return t.table.Update(id, data.NewSliceTuple(-1, []Value{nextUpdateValue}), t.baseData.Conn)
 }
 
 func (t *T) doD(id int64) bool {

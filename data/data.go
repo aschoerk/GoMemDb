@@ -25,7 +25,7 @@ var (
 
 var tablesMu sync.Mutex
 
-var NULL_TUPLE = &ArrayTuple{-1, nil}
+var NULL_TUPLE = &SliceTuple{-1, nil}
 
 type GoSqlColumn struct {
 	Name       string
@@ -62,22 +62,22 @@ type Tuple interface {
 	Clone() Tuple
 }
 
-type ArrayTuple struct {
+type SliceTuple struct {
 	recid int64
 	data  []driver.Value
 }
 
-func (t *ArrayTuple) DataLen() int {
+func (t *SliceTuple) DataLen() int {
 	return len(t.data)
 }
 
-func (t *ArrayTuple) Id() int64 {
+func (t *SliceTuple) Id() int64 {
 	return t.recid
 }
 
-func (t *ArrayTuple) Data(tableIx int, ix int) (driver.Value, error) {
+func (t *SliceTuple) Data(tableIx int, ix int) (driver.Value, error) {
 	if tableIx != 0 {
-		return nil, fmt.Errorf("ArrayTuple does not support table: %d", tableIx)
+		return nil, fmt.Errorf("SliceTuple does not support table: %d", tableIx)
 	}
 	if ix > len(t.data) {
 		return nil, fmt.Errorf("invalid tuple ix: %d", ix)
@@ -85,17 +85,17 @@ func (t *ArrayTuple) Data(tableIx int, ix int) (driver.Value, error) {
 	return t.data[ix], nil
 }
 
-func (t *ArrayTuple) SafeData(tableIx int, ix int) driver.Value {
+func (t *SliceTuple) SafeData(tableIx int, ix int) driver.Value {
 	return t.data[ix]
 }
 
-func (t *ArrayTuple) Clone() Tuple {
-	return &ArrayTuple{t.Id(), t.data}
+func (t *SliceTuple) Clone() Tuple {
+	return &SliceTuple{t.Id(), t.data}
 }
 
-func (t *ArrayTuple) SetData(tableIx int, ix int, val driver.Value) error {
+func (t *SliceTuple) SetData(tableIx int, ix int, val driver.Value) error {
 	if tableIx != 0 {
-		return fmt.Errorf("ArrayTuple does not support table: %d", tableIx)
+		return fmt.Errorf("SliceTuple does not support table: %d", tableIx)
 	}
 	if ix > len(t.data) {
 		return fmt.Errorf("invalid tuple ix: %d", ix)
@@ -104,8 +104,8 @@ func (t *ArrayTuple) SetData(tableIx int, ix int, val driver.Value) error {
 	return nil
 }
 
-func NewTuple(i int64, data []driver.Value) Tuple {
-	return &ArrayTuple{i, data}
+func NewSliceTuple(i int64, data []driver.Value) Tuple {
+	return &SliceTuple{i, data}
 }
 
 const (
@@ -143,7 +143,7 @@ func (it *TempTableIterator) Next(check func(Tuple) (bool, error)) (Tuple, bool,
 	for {
 		// ignore snapshot, just check if xids match
 		if len(it.table.Tempdata) > it.ix {
-			candidate := NewTuple(-1, it.table.Tempdata[it.ix])
+			candidate := NewSliceTuple(-1, it.table.Tempdata[it.ix])
 			it.ix++
 			found, err := check(candidate)
 			if err != nil {
@@ -621,7 +621,7 @@ func (ti *GoSqlTableIterator) handleCandidate(check func(Tuple) (bool, error), f
 		if !visible {
 			return NULL_TUPLE, false, nil
 		}
-		selected, err := check(NewTuple(tuple.id, version.Data))
+		selected, err := check(NewSliceTuple(tuple.id, version.Data))
 		if err != nil {
 			return NULL_TUPLE, false, err
 		}
@@ -655,10 +655,10 @@ func (ti *GoSqlTableIterator) handleCandidate(check func(Tuple) (bool, error), f
 					version := &tuple.Versions[len(tuple.Versions)-1]
 					version.xmax = ti.Transaction.Xid
 					version.flags |= FOR_UPDATE_FLAG
-					return NewTuple(tuple.id, version.Data), true, nil
+					return NewSliceTuple(tuple.id, version.Data), true, nil
 				}
 			} else {
-				return NewTuple(tuple.id, version.Data), true, nil
+				return NewSliceTuple(tuple.id, version.Data), true, nil
 			}
 		} else {
 			return NULL_TUPLE, false, nil
@@ -762,7 +762,7 @@ func (t *GoSqlTable) Update(recordId int64, recordValues Tuple, conn *GoSqlConnD
 		}
 		version.xmax = conn.Transaction.Xid
 		version.cid = conn.Transaction.Cid
-		recordVersion := TupleVersion{recordValues.(*ArrayTuple).data, conn.Transaction.Xid, 0, 0, conn.Transaction.Cid}
+		recordVersion := TupleVersion{recordValues.(*SliceTuple).data, conn.Transaction.Xid, 0, 0, conn.Transaction.Cid}
 		tuplep.Versions = append(tuplep.Versions, recordVersion)
 	}
 	return ok

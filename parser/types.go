@@ -38,18 +38,16 @@ type GoSqlUpdateSpec struct {
 	term *GoSqlTerm
 }
 
-type GoSqlAsIdentifier struct {
-	Id    data.GoSqlIdentifier
-	Alias string
+type GoSqlTableReference struct {
+	Id          data.GoSqlIdentifier
+	Select      *GoSqlSelectRequest
+	JoinedTable *GoSqlJoinedTable
+	As          string
 }
 
-type GoSqlJoinSpec struct {
-	JoinMode      int
-	JoinedTable   GoSqlAsIdentifier
-	JoinCondition *GoSqlTerm
-}
-
-type GoSqlFromSpec struct {
-	Id        GoSqlAsIdentifier
-	JoinSpecs []*GoSqlJoinSpec
+type GoSqlJoinedTable struct {
+	JoinedTableLeft     *GoSqlJoinedTable
+	JoinType            int
+	TableReferenceRight *GoSqlTableReference
+	condition           *GoSqlTerm
 }

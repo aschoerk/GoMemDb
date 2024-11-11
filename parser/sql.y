@@ -42,21 +42,21 @@ type yyLexerEx interface {
     termList []*GoSqlTerm
     updateSpec GoSqlUpdateSpec
     updateSpecs []GoSqlUpdateSpec
+    selectStatement *GoSqlSelectRequest
     selectList []SelectListEntry
     selectListEntry SelectListEntry
     updateRequest GoSqlUpdateRequest
     deleteRequest GoSqlDeleteRequest
     parseResult driver.Stmt
-    identifier_as GoSqlAsIdentifier
-    join_specs []*GoSqlJoinSpec
-    table_specs []*GoSqlFromSpec
     identifier GoSqlIdentifier
     identifier_list []string
+    joined_table *GoSqlJoinedTable
+    table_reference *GoSqlTableReference
 }
 
 // DDL
-%token CREATE DATABASE SCHEMA ALTER TABLE ADD AS IF NOT EXISTS PRIMARY KEY AUTOINCREMENT POPEN PCLOSE KOMMA
-%token INNER OUTER LEFT RIGHT FULL CROSS JOIN ON
+%token CREATE DATABASE SCHEMA ALTER TABLE ADD AS IF NOT EXISTS PRIMARY KEY AUTOINCREMENT POPEN PCLOSE COMMA
+%token ON
 %token <token> CHAR VARCHAR INTEGER FLOAT TEXT BOOLEAN TIMESTAMP FOR
 // DML
 %token SELECT DISTINCT ALL FROM WHERE GROUP BY HAVING ORDER ASC DESC UNION BETWEEN BETWEEN_AND AND IN INSERT UPDATE SET DELETE INTO VALUES
@@ -70,6 +70,7 @@ type yyLexerEx interface {
 %token <time> TIME_STAMP
 %token <boolean> TRUE, FALSE
 
+%left JOIN INNER CROSS LEFT RIGHT FULL OUTER NATURAL
 %left IS
 %left IN
 %left OR
@@ -84,6 +85,8 @@ type yyLexerEx interface {
 %left DOT
 %left	NEG     /* negation--unary minus */
 
+
+
 %type <column> column
 %type <columns> columns
 %type <fieldList> field_list
@@ -93,22 +96,25 @@ type yyLexerEx interface {
 %type <int>  opt_column_length column_specification2 if_exists_predicate distinct_all
 %type <ptr> const_expression like_term 
 %type <termList> term_list opt_group_by 
-%type <parseResult> statement ddl_statement dml_statement create_table select insert update delete connection_level
+%type <parseResult> statement ddl_statement dml_statement create_table insert update delete connection_level
+%type <selectStatement> select
 %type <selectList> select_list
 %type <selectListEntry> select_list_entry
 %type <string> select_list_entry_alias
-%type <term> term nonboolean_term opt_where opt_having aggregate_function_parameter join_restriction
+%type <term> term nonboolean_term opt_where opt_having aggregate_function_parameter
 %type <orderByEntry> order_by_entry
 %type <orderByEntryList> order_by_entry_list opt_order_by
 %type <token> order_by_direction opt_for_update
 %type <updateSpec> update_spec
 %type <updateSpecs> update_specs
-%type <token> join_mode
-%type <identifier_as> table_identification
-%type <join_specs> join_specs join_spec
-%type <table_specs> table_spec from_spec
+%type <joined_table> joined_table
+%type <table_reference> table_reference
+%type <token> outer_join_type
+%type <token> join_type
 %type <identifier> identifier
 %type <identifier_list> identifier_list
+%type <term> join_specification
+
 
 %% /* The grammar follows.  */
 
@@ -139,7 +145,7 @@ create_table:
 
 columns: column
        { $$ = []GoSqlColumn{$1}}
-    | columns KOMMA column
+    | columns COMMA column
       { $$ = append($1, $3) }
 
 column: IDENTIFIER column_type opt_column_length column_specification2
@@ -193,15 +199,15 @@ connection_level:
     | SET AUTOCOMMIT OFF
       { $$ = NewConnectionLevelRequest($2,$3)}
 
-delete: DELETE FROM from_spec opt_where
+delete: DELETE FROM table_reference opt_where
     { $$ = &GoSqlDeleteRequest{NewStatementBaseData(),$3, $4}}            
 
-update: UPDATE table_identification SET update_specs opt_where
+update: UPDATE table_reference SET update_specs opt_where
     { $$ = NewUpdateRequest($2, $4, $5) }
 
 update_specs: update_spec
       { $$ = []GoSqlUpdateSpec{$1}}
-    | update_specs KOMMA update_spec
+    | update_specs COMMA update_spec
       { $$ = append($1, $3) }
 
 
@@ -211,7 +217,7 @@ update_spec: identifier EQUAL term
 
 select: SELECT 
           distinct_all select_list
-        FROM from_spec
+        FROM table_reference
         opt_where 
         opt_group_by 
         opt_having
@@ -229,7 +235,7 @@ distinct_all:
 select_list: 
     select_list_entry
     { $$ = []SelectListEntry{$1}}
-    | select_list KOMMA select_list_entry
+    | select_list COMMA select_list_entry
     { $$ = append($1, $3) }
 
 select_list_entry:
@@ -243,57 +249,67 @@ select_list_entry_alias:
     | AS IDENTIFIER
     { $$ = $2}
 
-table_identification: identifier { $$ = GoSqlAsIdentifier{$1, ""} }
-     | identifier IDENTIFIER
-     { $$ = GoSqlAsIdentifier{$1, $2} }
+table_reference:
+    identifier
+    { $$ = &GoSqlTableReference{Id: $1} }
+    | POPEN select PCLOSE
+    { $$ = &GoSqlTableReference{Select: $2} }
+    | POPEN joined_table PCLOSE
+    { $$ = &GoSqlTableReference{JoinedTable: $2} }
+    | table_reference AS IDENTIFIER
+    {
+      $1.As = $3
+      $$ = $1
+    }
+    | table_reference IDENTIFIER
+    {
+          $1.As = $2
+          $$ = $1
+    }
+    ;
 
-join_mode:
-   JOIN
-   { $$ = INNER }
-   | INNER JOIN
-   { $$ = INNER }
-   | LEFT JOIN
-   { $$ = LEFT }
-   | LEFT OUTER JOIN
-   { $$ = LEFT }
-   | RIGHT JOIN
-   { $$ = RIGHT }
-   | RIGHT OUTER JOIN
-   { $$ = RIGHT }
-   | FULL JOIN
-   { $$ = FULL }
-   | FULL OUTER JOIN
-   { $$ = FULL }
-   | CROSS JOIN
-      { $$ = CROSS }
+joined_table:
+    table_reference
+    { $$ = nil }
+    | joined_table COMMA table_reference
+    { $$ = nil }
+    | joined_table join_type JOIN table_reference join_specification
+    { $$ = nil }
+    ;
 
+join_specification:
+    /* empty */
+    { $$ = nil }
+    | ON term
+    { $$ = $2 }
+    ;
 
-join_restriction:
-   { $$ = nil }
-   | ON term
-   { $$ = $2 }
+join_type:
+    /* empty */
+    { $$ = 0 }
+    | INNER
+    { $$ =  INNER }
+    | outer_join_type opt_outer
+    { $$ =  $1 }
+    | CROSS
+    { $$ =  CROSS }
+    | NATURAL
+    { $$ =  NATURAL }
+    ;
 
-join_spec:
-   table_identification join_restriction
-   { $$ = []*GoSqlJoinSpec{&GoSqlJoinSpec{0, $1, $2}} }
+opt_outer:
+   /* empty */
+   | OUTER
+   ;
 
-join_specs:
-    join_spec
-   { $$ = $1 }
-   | join_specs join_mode join_spec
-   { $3[0].JoinMode = $2; $$ = append($1, $3...) }
-
-table_spec:
-  table_identification
-  { $$ = []*GoSqlFromSpec{&GoSqlFromSpec{$1, nil}} }
-  | table_identification join_mode join_specs
-    { $3[len($3)-1].JoinMode = $2; $$ = []*GoSqlFromSpec{&GoSqlFromSpec{$1, $3}} }
-
-from_spec:
-   table_spec
-    { $$ = $1 }
-   | from_spec KOMMA table_spec
-   { $$ = append($1, $3...) }
+outer_join_type:
+    LEFT
+    { $$ = LEFT }
+    | RIGHT
+    { $$ = RIGHT }
+    | FULL
+    { $$ = FULL }
+    ;
 
 
 opt_where:
@@ -416,7 +432,7 @@ order_by_entry: identifier order_by_direction
 
 order_by_entry_list: order_by_entry
         { $$ = []GoSqlOrderBy{$1}}
-  | order_by_entry_list KOMMA order_by_entry
+  | order_by_entry_list COMMA order_by_entry
         { $$ = append($1, $3)}
 
 opt_having:
@@ -432,17 +448,17 @@ insert: INSERT INTO identifier POPEN field_list PCLOSE VALUES term_lists
 
 term_lists: POPEN term_list PCLOSE
    { $$ = [][]*GoSqlTerm{$2} }
-  | term_lists KOMMA POPEN term_list PCLOSE
+  | term_lists COMMA POPEN term_list PCLOSE
    { $$ = append($1,$4) }
 
 field_list: IDENTIFIER
         { $$ = []string{$1} }
-    | field_list KOMMA IDENTIFIER
+    | field_list COMMA IDENTIFIER
         { $$ = append($1, $3) }
 
 term_list: term
     { $$ = []*GoSqlTerm{$1} }
-    | term_list KOMMA term
+    | term_list COMMA term
     { $$ = append($1, $3)}
 
 const_expression:

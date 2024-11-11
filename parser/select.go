@@ -625,7 +625,7 @@ func (r *GoSqlSelectRequest) createAndFillTempTable(
 		slices.SortFunc(
 			*tempTable.Data(),
 			func(a, b []Value) int {
-				res, err := e.m.Execute(args, data.NewTuple(-1, a), data.NewTuple(-1, b))
+				res, err := e.m.Execute(args, data.NewSliceTuple(-1, a), data.NewSliceTuple(-1, b))
 				if err != nil {
 					panic(err.Error())
 				}
