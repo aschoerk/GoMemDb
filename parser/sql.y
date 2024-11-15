@@ -50,7 +50,7 @@ type yyLexerEx interface {
     parseResult driver.Stmt
     identifier GoSqlIdentifier
     identifier_list []string
-    joined_table *GoSqlJoinedTable
+    joined_table []*GoSqlJoinedTable
     table_reference *GoSqlTableReference
 }
 
@@ -199,10 +199,10 @@ connection_level:
     | SET AUTOCOMMIT OFF
       { $$ = NewConnectionLevelRequest($2,$3)}
 
-delete: DELETE FROM table_reference opt_where
+delete: DELETE FROM joined_table opt_where
     { $$ = &GoSqlDeleteRequest{NewStatementBaseData(),$3, $4}}            
 
-update: UPDATE table_reference SET update_specs opt_where
+update: UPDATE identifier SET update_specs opt_where
     { $$ = NewUpdateRequest($2, $4, $5) }
 
 update_specs: update_spec
@@ -217,7 +217,7 @@ update_spec: identifier EQUAL term
 
 select: SELECT 
           distinct_all select_list
-        FROM table_reference
+        FROM joined_table
         opt_where 
         opt_group_by 
         opt_having
@@ -258,23 +258,32 @@ table_reference:
     { $$ = &GoSqlTableReference{JoinedTable: $2} }
     | table_reference AS IDENTIFIER
     {
-      $1.As = $3
+      $1.Alias = $3
       $$ = $1
     }
     | table_reference IDENTIFIER
     {
-          $1.As = $2
+          $1.Alias = $2
           $$ = $1
     }
     ;
 
 joined_table:
     table_reference
-    { $$ = nil }
+    { $$ = []*GoSqlJoinedTable{&GoSqlJoinedTable{TableReferenceLeft: $1}} }
     | joined_table COMMA table_reference
-    { $$ = nil }
+         { $$ = append($1, &GoSqlJoinedTable{TableReferenceLeft: $3 } ) }
     | joined_table join_type JOIN table_reference join_specification
-    { $$ = nil }
+    {
+        if $1[len($1)-1].TableReferenceRight != nil {
+          $$ = append($1, &GoSqlJoinedTable{JoinType: $2,TableReferenceRight: $4, Condition: $5 } )
+        } else {
+          $1[len($1)-1].JoinType = $2
+          $1[len($1)-1].TableReferenceRight = $4
+          $1[len($1)-1].Condition = $5
+          $$ = $1
+        }
+    }
     ;
 
 join_specification:

@@ -20,6 +20,9 @@ func TestParser(t *testing.T) {
 	// parser.YYDebug = 3
 	testCases := []string{
 		"select count(DISTINCT A.name) from \"A\".\"A\" X inner JOIN B on A.A.x = B.Y LEFT JOIN C on C.y = A.d where A.A.x > 100",
+		"select count(DISTINCT A.name) from (\"A\".\"A\" X inner JOIN B on A.A.x = B.Y) LEFT JOIN C on C.y = A.d where A.A.x > 100",
+		"select count(DISTINCT A.name) from ((\"A\".\"A\" X inner JOIN B on A.A.x = B.Y) LEFT JOIN C on C.y = A.d) where A.A.x > 100",
+		"select count(DISTINCT A.name) from \"A\".\"A\" X inner JOIN (B LEFT JOIN C on C.y = A.d) on A.A.x = B.Y where A.A.x > 100",
 		"select count(DISTINCT A.name) from A.A X inner JOIN B on A.A.x = B.Y LEFT JOIN C on C.y = A.d where A.A.x > 100",
 		"select count(DISTINCT A.name) from A.A X inner JOIN B on A.A.x = B.Y LEFT JOIN C on C.y = A.d",
 		"select count(DISTINCT A.name) from A.A X join B on A.A.x = B.Y",

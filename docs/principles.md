@@ -36,7 +36,7 @@ For data structuring, the system uses slices of driver.Value. Each slice is acco
 ### Versioned Records
 To support Multi-Version Concurrency Control (MVCC), records that require synchronization across multiple connections consist of a header and a slice of versioned entries. This structure allows each record to maintain multiple versions, facilitating concurrent access and ensuring data consistency without locking.
 
-```go
+  
 type VersionedTuple struct {
 	id       int64
 	mu       sync.Mutex

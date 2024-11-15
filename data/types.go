@@ -106,6 +106,10 @@ type GoSqlIdentifier struct {
 	Parts []string
 }
 
+func (g *GoSqlIdentifier) IsValid() bool {
+	return len(g.Parts) > 0
+}
+
 func (i GoSqlIdentifier) Name() string {
 	res := i.Parts[0]
 	for _, part := range i.Parts[1:] {

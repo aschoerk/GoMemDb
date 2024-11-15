@@ -39,15 +39,22 @@ type GoSqlUpdateSpec struct {
 }
 
 type GoSqlTableReference struct {
-	Id          data.GoSqlIdentifier
-	Select      *GoSqlSelectRequest
-	JoinedTable *GoSqlJoinedTable
-	As          string
+	Id data.GoSqlIdentifier
+	// nested by parentheses not supported yet
+	Select *GoSqlSelectRequest
+	// nested by parentheses not supported yet
+	JoinedTable []*GoSqlJoinedTable
+	Alias       string
 }
 
+// a slice of *GoSqlJoinedTable describes the From-Term
+// if TableReferenceLeft is empty, then it is the right part of a JOIN
+// if TableReferenceRight is empty, then it is a single TableReference separated by Comma from the others if there are any
+// because of the recursion in TableReferenceLeft by Parentheses enclosed Selects, or JoinedTables each slice element can be
+// a tree/wood of arbitrary depth.
 type GoSqlJoinedTable struct {
-	JoinedTableLeft     *GoSqlJoinedTable
+	TableReferenceLeft  *GoSqlTableReference
 	JoinType            int
 	TableReferenceRight *GoSqlTableReference
-	condition           *GoSqlTerm
+	Condition           *GoSqlTerm
 }

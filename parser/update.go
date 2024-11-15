@@ -11,7 +11,7 @@ import (
 
 type GoSqlUpdateRequest struct {
 	data.BaseStatement
-	tableName    []*GoSqlFromSpec
+	tableName    data.GoSqlIdentifier
 	updates      []GoSqlUpdateSpec
 	where        *GoSqlTerm
 	terms        []*GoSqlTerm
@@ -20,11 +20,11 @@ type GoSqlUpdateRequest struct {
 	table        data.Table
 }
 
-func NewUpdateRequest(tableName GoSqlAsIdentifier, updates []GoSqlUpdateSpec, where *GoSqlTerm) *GoSqlUpdateRequest {
+func NewUpdateRequest(tableName data.GoSqlIdentifier, updates []GoSqlUpdateSpec, where *GoSqlTerm) *GoSqlUpdateRequest {
 	return &GoSqlUpdateRequest{
 		data.BaseStatement{
 			data.StatementBaseData{}},
-		[]*GoSqlFromSpec{{tableName, nil}}, updates, where,
+		tableName, updates, where,
 		nil, nil, nil, nil,
 	}
 }
@@ -43,15 +43,15 @@ func NewConnectionLevelRequest(token1 int, token2 int) *GoSqlConnectionLevelRequ
 
 type GoSqlDeleteRequest struct {
 	data.BaseStatement
-	from  []*GoSqlFromSpec
+	from  []*GoSqlJoinedTable
 	where *GoSqlTerm
 }
 
 func (r *GoSqlUpdateRequest) initStruct() error {
 	if r.columnixs == nil {
-		tmptable, exists := data.GetTable(r.BaseStatement, r.tableName[0].Id.Id)
+		tmptable, exists := data.GetTable(r.BaseStatement, r.tableName)
 		if !exists {
-			return fmt.Errorf("Unknown Table %s", r.tableName[0].Id.Id)
+			return fmt.Errorf("Unknown Table %s", r.tableName)
 		}
 		r.table = tmptable
 		r.terms = []*GoSqlTerm{}
@@ -199,7 +199,7 @@ func (r *GoSqlDeleteRequest) NumInput() int {
 }
 
 func (r *GoSqlDeleteRequest) Exec(args []Value) (Result, error) {
-	table, exists := data.GetTable(r.BaseStatement, r.from[0].Id.Id)
+	table, exists := data.GetTable(r.BaseStatement, r.from[0].TableReferenceLeft.Id)
 	if !exists {
 		return nil, fmt.Errorf("Unknown Table %v", r.from)
 	}
